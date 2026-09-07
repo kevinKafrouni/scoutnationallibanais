@@ -1,9 +1,4 @@
-const STORAGE_KEY = "snl-member-registry-v2";
-const LEGACY_STORAGE_KEY = "snl-member-registry-v1";
-const DEFAULT_PIN = "1234";
-const SCOUT_ID_START = 31000;
-
-const state = loadState();
+const state = { members: [], codes: [], counts: { members: "...", unused: "..." } };
 let session = { type: null, memberId: null };
 
 const elements = {
@@ -36,7 +31,6 @@ const elements = {
   memberSearch: document.querySelector("#memberSearch"),
   exportCsv: document.querySelector("#exportCsv"),
   exportJson: document.querySelector("#exportJson"),
-  importJson: document.querySelector("#importJson"),
   copyUnusedCodes: document.querySelector("#copyUnusedCodes"),
   downloadUnusedCodes: document.querySelector("#downloadUnusedCodes"),
   pinForm: document.querySelector("#pinForm"),
@@ -61,240 +55,132 @@ const elements = {
   profileMessage: document.querySelector("#profileMessage"),
 };
 
-elements.authTabs.forEach((tab) => {
-  tab.addEventListener("click", () => showAuthPanel(tab.dataset.authPanel));
-});
-
-elements.memberSignInPanel.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const scoutId = normalizeScoutId(elements.signInScoutId.value);
-  const member = state.members.find((item) => item.scoutId === scoutId);
-
-  if (!member || member.password !== elements.signInPassword.value) {
-    showMessage(elements.signInMessage, "Scout ID or password is incorrect.", true);
-    return;
-  }
-
-  session = { type: "member", memberId: member.id };
-  elements.memberSignInPanel.reset();
-  showMessage(elements.signInMessage, "");
-  render();
-});
-
-elements.memberSignUpPanel.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = new FormData(elements.memberSignUpPanel);
-  const accessCode = normalizeCode(form.get("accessCode"));
-  const code = state.codes.find((item) => item.code === accessCode);
-
-  if (!code) {
-    showMessage(elements.registerMessage, "This access code does not exist.", true);
-    return;
-  }
-
-  if (code.usedBy) {
-    showMessage(elements.registerMessage, "This access code has already been used.", true);
-    return;
-  }
-
-  const firstName = cleanName(form.get("firstName"));
-  const lastName = cleanName(form.get("lastName"));
-  const dateOfBirth = form.get("dateOfBirth");
-  const bloodType = form.get("bloodType");
-  const password = String(form.get("password") || "");
-  const [photoFile] = document.querySelector("#profilePhoto").files;
-
-  if (!firstName || !lastName || !dateOfBirth || !bloodType || password.length < 4) {
-    showMessage(elements.registerMessage, "Please complete every field. Password must be at least 4 characters.", true);
-    return;
-  }
-
-  if (new Date(dateOfBirth) > new Date()) {
-    showMessage(elements.registerMessage, "Date of birth cannot be in the future.", true);
-    return;
-  }
-
-  const member = {
-    id: crypto.randomUUID(),
-    scoutId: createScoutId(),
-    firstName,
-    lastName,
-    dateOfBirth,
-    bloodType,
-    password,
-    photoDataUrl: photoFile ? await fileToDataUrl(photoFile) : "",
-    accessCode,
-    registeredAt: new Date().toISOString(),
-  };
-
-  state.members.push(member);
-  code.usedBy = member.id;
-  code.usedAt = member.registeredAt;
-  saveState();
-  session = { type: "member", memberId: member.id };
-  elements.memberSignUpPanel.reset();
-  render();
-});
-
-elements.adminSignInPanel.addEventListener("submit", (event) => {
-  event.preventDefault();
-  if (elements.adminPin.value === state.adminPin) {
-    session = { type: "admin", memberId: null };
-    elements.adminSignInPanel.reset();
-    showMessage(elements.adminLoginMessage, "");
-    render();
-    return;
-  }
-
-  showMessage(elements.adminLoginMessage, "Incorrect admin PIN.", true);
-});
-
-elements.signOutButton.addEventListener("click", () => {
-  session = { type: null, memberId: null };
-  render();
-});
-
-elements.codeForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const quantity = Math.min(Math.max(Number(elements.codeQuantity.value) || 1, 1), 1000);
-  for (let index = 0; index < quantity; index += 1) {
-    state.codes.unshift({
-      code: createAccessCode(),
-      createdAt: new Date().toISOString(),
-      usedBy: null,
-      usedAt: null,
+async function api(path, method = 'GET', body) {
+  let response;
+  try {
+    response = await fetch(`/api${path}`, {
+      method, credentials: 'same-origin', cache: 'no-store',
+      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
-  }
-  saveState();
-  showMessage(elements.adminMessage, `${quantity} access code${quantity === 1 ? "" : "s"} generated.`);
-  renderCountsAndLists();
+  } catch { throw new Error('Cannot reach the server. Check your connection and try again.'); }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'The request could not be completed.');
+  return data;
+}
+
+async function refresh() {
+  const data = await api('/state');
+  state.members = data.members;
+  state.codes = data.codes;
+  state.counts = data.counts;
+  session = data.session;
+  render();
+}
+
+function handle(form, message, action) {
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    showMessage(message, '');
+    try { await action(); }
+    catch (error) { showMessage(message, error.message || 'Could not process this request.', true); }
+    finally { button.disabled = false; }
+  });
+}
+
+elements.authTabs.forEach((tab) => tab.addEventListener('click', () => showAuthPanel(tab.dataset.authPanel)));
+handle(elements.memberSignInPanel, elements.signInMessage, async () => {
+  await api('/login', 'POST', { type: 'member', scoutId: elements.signInScoutId.value, password: elements.signInPassword.value });
+  elements.memberSignInPanel.reset();
+  await refresh();
 });
-
-elements.memberSearch.addEventListener("input", renderMembers);
-
-elements.exportCsv.addEventListener("click", () => {
-  const rows = [
-    ["Scout ID", "First name", "Last name", "Date of birth", "Age", "Blood type", "Access code", "Registered at"],
-    ...state.members.map((member) => [
-      member.scoutId,
-      member.firstName,
-      member.lastName,
-      member.dateOfBirth,
-      calculateAge(member.dateOfBirth),
-      member.bloodType,
-      member.accessCode,
-      formatDateTime(member.registeredAt),
-    ]),
-  ];
-  downloadFile(`members-${todayStamp()}.csv`, toCsv(rows), "text/csv;charset=utf-8");
+handle(elements.adminSignInPanel, elements.adminLoginMessage, async () => {
+  await api('/login', 'POST', { type: 'admin', password: elements.adminPin.value });
+  elements.adminSignInPanel.reset();
+  await refresh();
 });
-
-elements.exportJson.addEventListener("click", () => {
-  downloadFile(`registry-backup-${todayStamp()}.json`, JSON.stringify(state, null, 2), "application/json");
+handle(elements.memberSignUpPanel, elements.registerMessage, async () => {
+  const form = new FormData(elements.memberSignUpPanel);
+  const [file] = document.querySelector('#profilePhoto').files;
+  const body = Object.fromEntries(form);
+  delete body.profilePhoto;
+  body.photoDataUrl = file ? await fileToDataUrl(file) : '';
+  await api('/register', 'POST', body);
+  elements.memberSignUpPanel.reset();
+  await refresh();
 });
-
-elements.importJson.addEventListener("change", async (event) => {
-  const [file] = event.target.files;
-  if (!file) return;
-
+elements.signOutButton.addEventListener('click', async () => {
+  elements.signOutButton.disabled = true;
   try {
-    const imported = JSON.parse(await file.text());
-    if (!Array.isArray(imported.members) || !Array.isArray(imported.codes)) {
-      throw new Error("Invalid backup");
-    }
-
-    state.members = imported.members.map(normalizeMember);
-    state.codes = imported.codes;
-    state.adminPin = String(imported.adminPin || state.adminPin || DEFAULT_PIN);
-    saveState();
-    showMessage(elements.adminMessage, "Backup imported.");
+    await api('/logout', 'POST', {});
+    state.members = []; state.codes = [];
+    session = { type: null, memberId: null };
+    elements.cardPhoto.removeAttribute('src');
+    elements.cardQr.removeAttribute('src');
+    document.querySelectorAll('#memberView strong, #memberView dd, #profileName, #cardInitials').forEach(node => { node.textContent = ''; });
     render();
-  } catch (error) {
-    showMessage(elements.adminMessage, "Could not import that JSON backup.", true);
-  } finally {
-    elements.importJson.value = "";
-  }
+    await refresh();
+  } catch (error) { window.alert(error.message); }
+  finally { elements.signOutButton.disabled = false; }
 });
-
-elements.copyUnusedCodes.addEventListener("click", async () => {
-  const codes = getUnusedCodes().map((item) => item.code).join("\n");
-  if (!codes) {
-    showMessage(elements.adminMessage, "There are no unused codes to copy.", true);
-    return;
-  }
-
-  await navigator.clipboard.writeText(codes);
-  showMessage(elements.adminMessage, "Unused codes copied.");
+handle(elements.codeForm, elements.adminMessage, async () => {
+  const quantity = Number(elements.codeQuantity.value);
+  await api('/codes', 'POST', { quantity });
+  await refresh();
+  showMessage(elements.adminMessage, `${quantity} access codes generated.`);
 });
-
-elements.downloadUnusedCodes.addEventListener("click", () => {
-  const codes = getUnusedCodes().map((item) => item.code).join("\n");
-  if (!codes) {
-    showMessage(elements.adminMessage, "There are no unused codes to download.", true);
-    return;
-  }
-
-  downloadFile(`unused-access-codes-${todayStamp()}.txt`, codes, "text/plain;charset=utf-8");
+handle(elements.pinForm, elements.adminMessage, async () => {
+  await api('/admin/password', 'PUT', { password: elements.newPin.value, currentPassword: document.querySelector('#currentAdminPassword').value });
+  elements.pinForm.reset();
+  showMessage(elements.adminMessage, 'Admin password changed. Other admin sessions have been signed out.');
 });
-
-elements.pinForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const nextPin = elements.newPin.value.trim();
-  if (nextPin.length < 4) {
-    showMessage(elements.adminMessage, "Use at least 4 characters for the PIN.", true);
-    return;
-  }
-
-  state.adminPin = nextPin;
-  elements.newPin.value = "";
-  saveState();
-  showMessage(elements.adminMessage, "Admin PIN changed.");
+handle(elements.photoForm, elements.profileMessage, async () => {
+  const [file] = elements.profilePhotoUpdate.files;
+  if (!file) throw new Error('Choose an image first.');
+  await api('/photo', 'PUT', { photoDataUrl: await fileToDataUrl(file) });
+  elements.photoForm.reset();
+  await refresh();
+  showMessage(elements.profileMessage, 'Profile photo updated.');
 });
-
-elements.printCardButton.addEventListener("click", () => window.print());
-
-elements.photoForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const member = state.members.find((item) => item.id === session.memberId);
-  const [photoFile] = elements.profilePhotoUpdate.files;
-
-  if (!member || !photoFile) {
-    showMessage(elements.profileMessage, "Choose an image first.", true);
-    return;
-  }
-
-  member.photoDataUrl = await fileToDataUrl(photoFile);
-  elements.profilePhotoUpdate.value = "";
-  saveState();
-  renderMemberProfile(member);
-  showMessage(elements.profileMessage, "Profile photo updated.");
-});
-
-function loadState() {
-  const fallback = { members: [], codes: [], adminPin: DEFAULT_PIN };
-  const saved = readStoredState(STORAGE_KEY) || readStoredState(LEGACY_STORAGE_KEY) || fallback;
-  const migrated = {
-    ...fallback,
-    ...saved,
-    members: Array.isArray(saved.members) ? saved.members.map(normalizeMember) : [],
-    codes: Array.isArray(saved.codes) ? saved.codes : [],
-    adminPin: String(saved.adminPin || DEFAULT_PIN),
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
-  return migrated;
-}
-
-function readStoredState(key) {
+elements.memberSearch.addEventListener('input', renderMembers);
+elements.printCardButton.addEventListener('click', () => window.print());
+elements.exportCsv.addEventListener('click', async () => {
   try {
-    return JSON.parse(localStorage.getItem(key));
-  } catch (error) {
-    return null;
-  }
-}
-
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
+    await refresh();
+    if (session.type !== 'admin') throw new Error('Please sign in as admin.');
+    const rows = [
+      ['Scout ID', 'First name', 'Last name', 'Date of birth', 'Age', 'Blood type', 'Access code', 'Registered at'],
+      ...state.members.map(m => [m.scoutId, m.firstName, m.lastName, m.dateOfBirth, calculateAge(m.dateOfBirth), m.bloodType, m.accessCode, formatDateTime(m.registeredAt)]),
+    ];
+    downloadFile(`members-${todayStamp()}.csv`, toCsv(rows), 'text/csv;charset=utf-8');
+  } catch (error) { showMessage(elements.adminMessage, error.message, true); }
+});
+elements.exportJson.addEventListener('click', async () => {
+  try {
+    await refresh();
+    if (session.type !== 'admin') throw new Error('Please sign in as admin.');
+    downloadFile(`registry-export-${todayStamp()}.json`, JSON.stringify({ members: state.members, codes: state.codes }, null, 2), 'application/json');
+  } catch (error) { showMessage(elements.adminMessage, error.message, true); }
+});
+elements.copyUnusedCodes.addEventListener('click', async () => {
+  try {
+    await refresh();
+    const codes = getUnusedCodes().map(item => item.code).join('\n');
+    if (!codes) throw new Error('There are no unused codes to copy.');
+    await navigator.clipboard.writeText(codes);
+    showMessage(elements.adminMessage, 'Unused codes copied.');
+  } catch (error) { showMessage(elements.adminMessage, error.message, true); }
+});
+elements.downloadUnusedCodes.addEventListener('click', async () => {
+  try {
+    await refresh();
+    const codes = getUnusedCodes().map(item => item.code).join('\n');
+    if (!codes) throw new Error('There are no unused codes to download.');
+    downloadFile(`unused-access-codes-${todayStamp()}.txt`, codes, 'text/plain;charset=utf-8');
+  } catch (error) { showMessage(elements.adminMessage, error.message, true); }
+});
 
 function showAuthPanel(panelId) {
   elements.authTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.authPanel === panelId));
@@ -321,8 +207,8 @@ function render() {
 }
 
 function renderCountsAndLists() {
-  elements.memberCountPublic.textContent = state.members.length;
-  elements.unusedCodeCountPublic.textContent = getUnusedCodes().length;
+  elements.memberCountPublic.textContent = state.counts.members;
+  elements.unusedCodeCountPublic.textContent = state.counts.unused;
   elements.memberCountAdmin.textContent = state.members.length;
   elements.unusedCodeCount.textContent = getUnusedCodes().length;
   elements.usedCodeCount.textContent = state.codes.filter((code) => code.usedBy).length;
@@ -350,15 +236,7 @@ function renderMemberProfile(member) {
   elements.cardQr.src = createQrUrl(member);
 }
 
-function createQrUrl(member) {
-  const payload = [
-    `Scout ID: ${member.scoutId}`,
-    `Name: ${member.firstName} ${member.lastName}`,
-    `Date of birth: ${member.dateOfBirth}`,
-    `Blood type: ${member.bloodType}`,
-  ].join("\n");
-  return `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=8&data=${encodeURIComponent(payload)}`;
-}
+function createQrUrl() { return "/api/card/qr"; }
 
 function renderCodes() {
   if (!state.codes.length) {
@@ -404,17 +282,8 @@ function renderMembers() {
     .join("");
 }
 
-function normalizeMember(member, index) {
-  return {
-    ...member,
-    id: member.id || crypto.randomUUID(),
-    scoutId: member.scoutId || String(SCOUT_ID_START + index + 1).padStart(8, "0"),
-    password: member.password || member.accessCode || "1234",
-    photoDataUrl: member.photoDataUrl || "",
-  };
-}
-
 function fileToDataUrl(file) {
+  if (!file.type.startsWith("image/") || file.size > 10 * 1024 * 1024) return Promise.reject(new Error("Choose an image smaller than 10 MB."));
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener("load", () => {
@@ -437,49 +306,8 @@ function fileToDataUrl(file) {
   });
 }
 
-function createScoutId(seed) {
-  if (seed) {
-    const existing = state?.members || [];
-    const legacyIndex = existing.findIndex((member) => member.id === seed);
-    const numeric = SCOUT_ID_START + Math.max(legacyIndex, 0) + 1;
-    return String(numeric).padStart(8, "0");
-  }
-
-  let nextNumber = SCOUT_ID_START + state.members.length + 1;
-  let scoutId = String(nextNumber).padStart(8, "0");
-  while (state.members.some((member) => member.scoutId === scoutId)) {
-    nextNumber += 1;
-    scoutId = String(nextNumber).padStart(8, "0");
-  }
-  return scoutId;
-}
-
-function createAccessCode() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code;
-  do {
-    code = "SNL-";
-    for (let index = 0; index < 6; index += 1) {
-      code += alphabet[Math.floor(Math.random() * alphabet.length)];
-    }
-  } while (state.codes.some((item) => item.code === code));
-  return code;
-}
-
 function getUnusedCodes() {
   return state.codes.filter((code) => !code.usedBy);
-}
-
-function normalizeCode(value) {
-  return String(value || "").trim().toUpperCase();
-}
-
-function normalizeScoutId(value) {
-  return String(value || "").trim().replace(/\D/g, "").padStart(8, "0");
-}
-
-function cleanName(value) {
-  return String(value || "").trim().replace(/\s+/g, " ");
 }
 
 function showMessage(element, text, isError = false) {
@@ -513,7 +341,7 @@ function toCsv(rows) {
   return rows
     .map((row) =>
       row
-        .map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`)
+        .map((cell) => `"${String(cell ?? "").replace(/^[=+@\-\t\r]/, "' $&").replace(/"/g, '""')}"`)
         .join(",")
     )
     .join("\n");
@@ -542,3 +370,4 @@ function escapeHtml(value) {
 }
 
 render();
+refresh().catch((error) => showMessage(elements.signInMessage, error.message, true));

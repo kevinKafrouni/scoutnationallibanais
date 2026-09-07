@@ -101,7 +101,7 @@
               </label>
               <label>
                 <span>Password</span>
-                <input id="signUpPassword" name="password" type="password" minlength="4" required>
+                <input id="signUpPassword" name="password" type="password" minlength="12" maxlength="128" required>
               </label>
               <button class="primary" type="submit">Create account</button>
               <p id="registerMessage" class="message" role="status"></p>
@@ -109,8 +109,8 @@
 
             <form id="adminSignInPanel" class="auth-panel" autocomplete="off">
               <label>
-                <span>Admin PIN</span>
-                <input id="adminPin" type="password" inputmode="numeric" placeholder="Default: 1234" required>
+                <span>Admin password</span>
+                <input id="adminPin" type="password" autocomplete="current-password" placeholder="Admin password" required>
               </label>
               <button class="primary" type="submit">Open dashboard</button>
               <p id="adminLoginMessage" class="message" role="status"></p>
@@ -208,11 +208,8 @@
             </div>
             <div class="head-actions">
               <button id="exportCsv" class="secondary" type="button">Export CSV</button>
-              <button id="exportJson" class="secondary" type="button">Backup JSON</button>
-              <label class="file-button">
-                Import JSON
-                <input id="importJson" type="file" accept="application/json">
-              </label>
+              <button id="exportJson" class="secondary" type="button">Export JSON</button>
+
             </div>
           </div>
 
@@ -278,12 +275,13 @@
 
           <section class="panel settings-panel">
             <div>
-              <h3>Admin PIN</h3>
-              <p class="muted">This protects the admin area on this browser.</p>
+              <h3>Admin password</h3>
+              <p class="muted">Use a unique password of at least 12 characters.</p>
             </div>
             <form id="pinForm" class="inline-form">
-              <input id="newPin" type="password" minlength="4" placeholder="New PIN">
-              <button class="secondary" type="submit">Change PIN</button>
+              <input id="currentAdminPassword" type="password" placeholder="Current password" required autocomplete="current-password">
+              <input id="newPin" type="password" minlength="12" maxlength="128" placeholder="New password" required autocomplete="new-password">
+              <button class="secondary" type="submit">Change password</button>
             </form>
             <p id="adminMessage" class="message" role="status"></p>
           </section>

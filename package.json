@@ -1,0 +1,27 @@
+{
+  "name": "snl-member-registry",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "migrate": "node server/migrate.js",
+    "test": "node --test test/registry.test.js test/db-config.test.js",
+    "test:browser": "node --test test/browser.test.js",
+    "check": "node --check app.js && node --check server/app.js && node --check server/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "pg": "^8.16.3",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.7",
+    "@playwright/test": "^1.63.0"
+  }
+}
