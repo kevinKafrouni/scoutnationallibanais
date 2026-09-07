@@ -20,41 +20,54 @@ Open **http://localhost:3000**. Opening `index.html` directly or using Live Serv
 
 The server applies the schema automatically at startup. `npm run migrate` also applies it explicitly. The initial `ADMIN_PASSWORD` creates the administrator only if none exists; subsequent migrations never reset the stored password. Change the password in the admin dashboard. Database credentials remain exclusively in the server environment.
 
-## Deploy scoutnationallibanais.org
+## Deploy on Netlify with Supabase
 
-Hosting is separate from the GoDaddy domain registration. `render.yaml` now defines only the Node.js web service on Render; PostgreSQL is hosted in your [Supabase project](https://supabase.com/dashboard/project/ylgldiluovjaybgtyxlp). The Render service is a **paid resource**; inspect its current estimate before creating it. The configuration connects to your existing Supabase project; deploying the web service and updating DNS are separate steps. Connecting Supabase to GitHub does not supply this Node.js server with database credentials or run `server/schema.sql`.
+The website is built into `dist/`; `/api/*` and `/healthz` are handled by Netlify Functions. `netlify.toml` defines the build, routes, security headers, and session cleanup schedule. Supabase remains the database. The live Supabase tables and admin account were initialized during setup.
 
-1. Push these project changes to `https://github.com/kevinKafrouni/scoutnationallibanais`.
-2. Sign in to [Render](https://dashboard.render.com/), connect your GitHub account, and create a **Blueprint** from that repository. Render reads `render.yaml`.
-3. Enter a unique `ADMIN_PASSWORD` (12–128 characters) when prompted. Keep it in your password manager. The database URL is wired automatically. Review the service/database plan estimate, then deploy.
-4. In the web service's **Settings → Custom Domains**, confirm `scoutnationallibanais.org` is present. The Blueprint requests this domain; Render also adds the `www` redirect. Copy the exact DNS values displayed by Render.
-5. In GoDaddy, open **Domain Portfolio → scoutnationallibanais.org → DNS** and update the web records:
+1. In Netlify, choose **Add new project ? Import an existing project**, connect GitHub, and select `kevinKafrouni/scoutnationallibanais`, branch `master`. For an existing Netlify project, connect this repository in its build settings.
+2. Netlify reads `netlify.toml`: build command **`npm run build`**, publish directory **`dist`**, functions directory **`netlify/functions`**, Node.js **22**. Do not use the repository root as the publish directory, and do not use a drag-and-drop static-only deploy.
+3. Add these environment variables privately in Netlify's project settings, with **Functions** scope (or all scopes if your plan does not offer scope selection):
 
-   | Type | Name | Value |
-   | --- | --- | --- |
-   | A | `@` | The IPv4 address shown by Render (currently documented as `216.24.57.1`; use the dashboard value) |
-   | CNAME | `www` | Your assigned Render service hostname, without `https://` |
+   | Variable | Value |
+   | --- | --- |
+   | `DATABASE_URL` | Supabase **Transaction pooler** URI, port **6543**, from your project's Connect dialog, with the database password percent-encoded |
+   | `DATABASE_POOL_MAX` | `2` to limit connections per function instance |
+   | `APP_ORIGIN` | Optional initially: leave unset to use Netlify's assigned site URL. Once the custom domain works, set `https://scoutnationallibanais.org` |
+   | `AWS_LAMBDA_JS_RUNTIME` | `nodejs22.x` |
 
-   Replace conflicting parking/forwarding records for `@` and `www`, including conflicting AAAA records for these two hosts. Preserve mail/MX records, verification TXT records, and unrelated subdomains.
-6. Click **Verify** in Render after DNS updates propagate. Render provisions HTTPS. Use **https://scoutnationallibanais.org** for sign-in. `APP_ORIGIN` is configured to that exact origin to protect write requests; signing in on the temporary `onrender.com` URL will be rejected unless you temporarily change `APP_ORIGIN` to match it.
-7. Sign in as admin, generate a code, and register a real member. Verify the account from another browser, update a photo, and print the card. Check `/healthz` reports `{"status":"ok"}`.
+   Do not copy your local `APP_ORIGIN=http://localhost:3000` into the deployed site. The app uses its existing database admin account, so Netlify Functions do not need `ADMIN_PASSWORD`. Do not give untrusted deploy previews production database credentials. Environment-variable changes require a new deployment.
+4. Deploy and open the assigned `https://...netlify.app` URL. Verify `/healthz`, sign in as admin, refresh, and sign out. The API runs automatically as a Function; it does not start `server/index.js` or run migrations per request.
+5. In Netlify's domain management, add **scoutnationallibanais.org** and make it the primary domain. In GoDaddy DNS, use the exact apex and `www` DNS records shown by Netlify. Replace conflicting parking records only for these website hosts; preserve email records and unrelated subdomains. Enable/verify HTTPS in Netlify.
+6. Set `APP_ORIGIN=https://scoutnationallibanais.org` in Netlify and redeploy. Use that domain for sign-in. Other origins are rejected for write requests; the `www` alias should redirect to the primary domain.
 
-See [Render deployment](https://render.com/docs/deploy-node-express-app), [Blueprint configuration](https://render.com/docs/blueprint-spec), [custom domains](https://render.com/docs/custom-domains), and [DNS instructions](https://render.com/docs/configure-other-dns).
+If publishing with the CLI, run `npx netlify login`, `npx netlify link` (choose your existing project), and `npx netlify deploy --build --prod` after setting the variables in Netlify. This publishes both assets and Functions.
 
-## Connect your Supabase project
+See [Netlify Express deployment](https://docs.netlify.com/build/frameworks/framework-setup-guides/express/) and [Netlify function configuration](https://docs.netlify.com/build/functions/configuration/).
 
-1. Open [project ylgldiluovjaybgtyxlp](https://supabase.com/dashboard/project/ylgldiluovjaybgtyxlp) and click **Connect**. Select **Session pooler**, using port **5432**. Copy the exact URI from the dashboard: the pooler hostname depends on the project's region and cannot be inferred from the project link.
-2. Replace the password placeholder with your **database password**, URL-encoding special characters in the password. This is not your Supabase account password, publishable key, or service-role API key. If you do not know the database password, use the project's database settings to reset it and update any other clients that use it.
-3. Store the complete URI privately as `DATABASE_URL` in Render's Environment settings (or the Blueprint prompt). For a local connection, copy `.env.example` to `.env` only if `.env` does not already exist, and set `DATABASE_URL` and `ADMIN_PASSWORD` there. `.env` is excluded from Git. Never put the real URI in `render.yaml`, browser code, or chat.
-4. The app enforces verified TLS for Supabase connections, bundles the public Supabase CA certificate, and defaults to five database connections. If Supabase rotates its CA or the endpoint uses a different CA, set `DATABASE_SSL_CA` to the new PEM certificate in the server environment. Do not disable certificate verification to bypass a connection error.
-5. Run `npm run migrate` locally with Node.js 22+, or let Render's pre-deploy command run it. This initializes the registry and admin account. Running only `schema.sql` manually does not initialize the admin password.
-6. Confirm the tables appear in Supabase's Table Editor, then test the deployed app. Only after migration and a successful connection test is the live database connected.
+## Supabase connection and migrations
 
-The schema enables Row Level Security and revokes registry access from Supabase's `anon` and `authenticated` roles. This app uses its own server-side authentication; it does not use Supabase Auth or browser Data API queries. Use the `postgres` connection supplied by the dashboard for this setup: the table owner can access the registry while browser API roles cannot. Keep this privileged URI exclusively on the server. If this project is dedicated to this app, you can also disable the Supabase Data API in project settings because the app does not need it. Existing unrelated Supabase tables are not changed by the registry migration.
+Your project is [ylgldiluovjaybgtyxlp](https://supabase.com/dashboard/project/ylgldiluovjaybgtyxlp). Netlify uses the transaction pooler because Functions scale on demand. Local development and the explicit migration command can continue using the session pooler on port 5432. This app uses unnamed queries compatible with transaction pooling.
 
-Supabase's GitHub migration workflow uses its own migrations directory; this repository currently runs migrations through the Node.js/Render command instead. The GitHub connection alone does not apply this schema.
+Store local credentials in `.env`, which is excluded from Git. For a fresh database, set a unique `ADMIN_PASSWORD` of 12?128 characters and run `npm run migrate` locally with Node.js 22+. Keep migrations out of the Netlify build: deploy previews and asset builds must not modify the production schema. Subsequent migrations do not reset the admin password.
 
-See [Supabase connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres) and [securing the Data API](https://supabase.com/docs/guides/api/securing-your-api).
+Database TLS is verified using Node's standard trust roots and the bundled public Supabase CA. `DATABASE_SSL_CA` can override the certificate bundle if Supabase rotates its CA. Never disable certificate verification to bypass a connection error.
+
+The registry tables use RLS and deny Supabase `anon` and `authenticated` API roles access. The Node.js API performs authorization using database-backed sessions. This setup uses the privileged PostgreSQL connection only on the server, not Supabase Auth or browser Data API calls. Existing unrelated Supabase tables are not modified.
+
+See [Supabase connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres).
+
+## Run the Netlify setup locally
+
+Use Node.js 22 or later:
+
+```powershell
+npm ci
+# Your existing .env supplies DATABASE_URL. Set this origin just for Netlify Dev:
+$env:APP_ORIGIN='http://localhost:8888'
+npm run dev:netlify
+```
+
+Open **http://localhost:8888**. The original `npm start` remains available at port 3000. Netlify Dev uses development cookies; deployed Functions always use Secure cookies. Only the four public website assets are copied into `dist`; `.env`, certificates, server source, and backups are never public assets.
 
 ## Backups and existing browser data
 
@@ -75,7 +88,7 @@ For the browser flow test, run `npx playwright install chromium` once, then `npm
 
 Integration tests run the schema and SQL against embedded PostgreSQL (PGlite). They cover role isolation, code redemption, validation, hashed credentials, session persistence across an HTTP server restart, logout, admin password rotation, rate limits, private file access, and QR generation. The embedded engine serializes connections: its competing-registration test is not a substitute for a concurrency test against a hosted PostgreSQL instance. Live DNS, HTTPS, and hosted PostgreSQL verification must happen after provisioning.
 
-Sessions expire after 12 hours and use HttpOnly, SameSite cookies, with Secure cookies in production. Authentication is limited to 30 attempts per IP per 15 minutes; this includes registration, sign-in, and administrator password changes. The server periodically removes expired sessions and rate-limit rows. Configure `TRUST_PROXY` only for your hosting proxy arrangement (the supplied Render configuration uses one proxy hop).
+Sessions expire after 12 hours and use HttpOnly, SameSite cookies, with Secure cookies in production. Authentication is limited to 30 attempts per IP per 15 minutes; this includes registration, sign-in, and administrator password changes. A scheduled Netlify Function removes expired sessions and rate-limit rows every 15 minutes on published deployments; the local server uses a timer. The Netlify adapter uses Netlify's client-IP header for rate limiting and ignores user-supplied X-Forwarded-For. Local server proxy configuration still uses `TRUST_PROXY`.
 
 QR codes are generated by this server and contain only the organization and Scout ID. They do not send names, dates of birth, or blood types to an external QR service, and they are not public identity-verification links.
 

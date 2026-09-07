@@ -7,9 +7,11 @@
     "node": ">=22"
   },
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev:netlify": "npm run build && netlify dev",
     "start": "node server/index.js",
     "migrate": "node server/migrate.js",
-    "test": "node --test test/registry.test.js test/db-config.test.js",
+    "test": "node --test test/registry.test.js test/db-config.test.js test/netlify.test.js",
     "test:browser": "node --test test/browser.test.js",
     "check": "node --check app.js && node --check server/app.js && node --check server/index.js"
   },
@@ -18,7 +20,8 @@
     "express": "^5.1.0",
     "helmet": "^8.1.0",
     "pg": "^8.16.3",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "serverless-http": "4.0.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.7",

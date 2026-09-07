@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { rootCertificates } from 'node:tls';
+import { resolve } from 'node:path';
 
 export function databaseConfig(env) {
   if (!env.DATABASE_URL) throw new Error('Set DATABASE_URL in .env or your hosting environment.');
@@ -10,7 +11,7 @@ export function databaseConfig(env) {
   const supabase = url.hostname.endsWith('.supabase.co') || url.hostname.endsWith('.supabase.com');
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   const secure = supabase || (env.NODE_ENV === 'production' && !local);
-  const max = Number(env.DATABASE_POOL_MAX || 5);
+  const max = Number(env.DATABASE_POOL_MAX || (env.NETLIFY ? 2 : 5));
   if (!Number.isInteger(max) || max < 1 || max > 20) throw new Error('DATABASE_POOL_MAX must be an integer between 1 and 20.');
   const config = { connectionString: url.toString(), max, connectionTimeoutMillis: 10000 };
   if (secure) {
@@ -19,7 +20,7 @@ export function databaseConfig(env) {
     config.connectionString = url.toString();
     config.ssl = { rejectUnauthorized: true };
     if (env.DATABASE_SSL_CA) config.ssl.ca = env.DATABASE_SSL_CA.replace(/\\n/g, '\n');
-    else if (supabase) config.ssl.ca = [...rootCertificates, readFileSync(new URL('./certs/supabase-ca.crt', import.meta.url), 'utf8')];
+    else if (supabase) config.ssl.ca = [...rootCertificates, readFileSync(env.LAMBDA_TASK_ROOT ? resolve(env.LAMBDA_TASK_ROOT, 'server/certs/supabase-ca.crt') : new URL('./certs/supabase-ca.crt', import.meta.url), 'utf8')];
   }
   return config;
 }

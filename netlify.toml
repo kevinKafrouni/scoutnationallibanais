@@ -1,0 +1,40 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["pg", "express", "serverless-http", "qrcode"]
+  included_files = ["server/certs/supabase-ca.crt"]
+
+[functions.cleanup]
+  schedule = "*/15 * * * *"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/healthz"
+  to = "/.netlify/functions/api/healthz"
+  status = 200
+  force = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "no-referrer"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://images.unsplash.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+
+[dev]
+  framework = "#static"
+  publish = "dist"
+  port = 8888

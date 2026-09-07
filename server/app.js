@@ -29,7 +29,7 @@ function profile(body) {
   return { firstName, lastName, date, photo: photo(body.photoDataUrl) };
 }
 
-export function createApp(db, { production = false, origin = 'http://localhost:3000', trustProxy = 0 } = {}) {
+export function createApp(db, { production = false, origin = 'http://localhost:3000', trustProxy = 0, serveStatic = true } = {}) {
   if (production && !origin.startsWith('https://')) throw new Error('APP_ORIGIN must be an HTTPS origin in production.');
   if (new URL(origin).origin !== origin) throw new Error('APP_ORIGIN must contain only the URL origin, with no trailing slash.');
   const app = express();
@@ -169,7 +169,7 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
   });
   app.use('/api', (req, res) => res.status(404).json({ error: 'Unknown API endpoint.' }));
   // Explicit allowlist: never expose .env, source files, or database backups.
-  for (const file of ['index.html', 'app.js', 'styles.css', 'id-front.jpeg']) {
+  for (const file of serveStatic ? ['index.html', 'app.js', 'styles.css', 'id-front.jpeg'] : []) {
     app.get(file === 'index.html' ? ['/', '/index.html'] : `/${file}`, (req, res) => res.sendFile(file, { root }));
   }
   app.use((error, req, res, next) => {
