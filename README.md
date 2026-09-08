@@ -16,7 +16,7 @@ docker compose up -d
 npm start
 ```
 
-Open **http://localhost:3000**. Opening `index.html` directly or using Live Server no longer works: authentication and storage require the API. Use the Admin tab with your configured password, generate access codes, and distribute one to each member.
+Open **http://localhost:3000** for the public homepage. Visitors can read about the community without an account or database connection. The **Member portal** link opens `/portal.html`, where members can sign in or register and administrators can open the Admin tab. Authentication and storage require the API; use `npm start` rather than Live Server for the portal. Use your configured admin password to generate access codes and distribute one to each member.
 
 The server applies the schema automatically at startup. `npm run migrate` also applies it explicitly. The initial `ADMIN_PASSWORD` creates the administrator only if none exists; subsequent migrations never reset the stored password. Change the password in the admin dashboard. Database credentials remain exclusively in the server environment.
 
@@ -67,7 +67,7 @@ $env:APP_ORIGIN='http://localhost:8888'
 npm run dev:netlify
 ```
 
-Open **http://localhost:8888**. The original `npm start` remains available at port 3000. Netlify Dev uses development cookies; deployed Functions always use Secure cookies. Only the four public website assets are copied into `dist`; `.env`, certificates, server source, and backups are never public assets.
+Open **http://localhost:8888**. The original `npm start` remains available at port 3000. Netlify Dev uses development cookies; deployed Functions always use Secure cookies. Only the five public website assets are copied into `dist`; `.env`, certificates, server source, and backups are never public assets.
 
 ## Backups and existing browser data
 

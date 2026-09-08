@@ -169,7 +169,7 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
   });
   app.use('/api', (req, res) => res.status(404).json({ error: 'Unknown API endpoint.' }));
   // Explicit allowlist: never expose .env, source files, or database backups.
-  for (const file of serveStatic ? ['index.html', 'app.js', 'styles.css', 'id-front.jpeg'] : []) {
+  for (const file of serveStatic ? ['index.html', 'portal.html', 'app.js', 'styles.css', 'id-front.jpeg'] : []) {
     app.get(file === 'index.html' ? ['/', '/index.html'] : `/${file}`, (req, res) => res.sendFile(file, { root }));
   }
   app.use((error, req, res, next) => {

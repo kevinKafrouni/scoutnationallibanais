@@ -28,6 +28,9 @@ test('browser registration, reload, photo, exports, and sign-in', { timeout: 600
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(origin);
+  await expect(page.locator('h1')).toContainText('Adventure');
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await page.getByRole('link', { name: 'Member portal', exact: true }).first().click();
   await expect(page.locator('#memberCountPublic')).toHaveText('0');
   await page.locator('[data-auth-panel="adminSignInPanel"]').click();
   await page.locator('#adminPin').fill(password);
