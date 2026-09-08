@@ -16,9 +16,6 @@ const elements = {
   signInMessage: document.querySelector("#signInMessage"),
   memberSignUpPanel: document.querySelector("#memberSignUpPanel"),
   registerMessage: document.querySelector("#registerMessage"),
-  adminSignInPanel: document.querySelector("#adminSignInPanel"),
-  adminPin: document.querySelector("#adminPin"),
-  adminLoginMessage: document.querySelector("#adminLoginMessage"),
   memberCountPublic: document.querySelector("#memberCountPublic"),
   unusedCodeCountPublic: document.querySelector("#unusedCodeCountPublic"),
   codeForm: document.querySelector("#codeForm"),
@@ -92,13 +89,9 @@ function handle(form, message, action) {
 
 elements.authTabs.forEach((tab) => tab.addEventListener('click', () => showAuthPanel(tab.dataset.authPanel)));
 handle(elements.memberSignInPanel, elements.signInMessage, async () => {
-  await api('/login', 'POST', { type: 'member', scoutId: elements.signInScoutId.value, password: elements.signInPassword.value });
+  const username = elements.signInScoutId.value.trim();
+  await api('/login', 'POST', { type: username.toLowerCase() === 'admin' ? 'admin' : 'member', scoutId: username, password: elements.signInPassword.value });
   elements.memberSignInPanel.reset();
-  await refresh();
-});
-handle(elements.adminSignInPanel, elements.adminLoginMessage, async () => {
-  await api('/login', 'POST', { type: 'admin', password: elements.adminPin.value });
-  elements.adminSignInPanel.reset();
   await refresh();
 });
 handle(elements.memberSignUpPanel, elements.registerMessage, async () => {

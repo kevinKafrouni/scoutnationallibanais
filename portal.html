@@ -42,19 +42,18 @@
 
           <div class="auth-card">
             <div class="auth-tabs" aria-label="Authentication">
-              <button class="auth-tab active" type="button" data-auth-panel="memberSignInPanel">Member sign in</button>
+              <button class="auth-tab active" type="button" data-auth-panel="memberSignInPanel">Sign in</button>
               <button class="auth-tab" type="button" data-auth-panel="memberSignUpPanel">Sign up</button>
-              <button class="auth-tab" type="button" data-auth-panel="adminSignInPanel">Admin</button>
             </div>
 
             <form id="memberSignInPanel" class="auth-panel active" autocomplete="off">
               <label>
-                <span>Scout ID number</span>
-                <input id="signInScoutId" placeholder="EX: 00031009" inputmode="numeric" required>
+                <span>Scout ID or username</span>
+                <input id="signInScoutId" placeholder="Enter your Scout ID or username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
               </label>
               <label>
                 <span>Password</span>
-                <input id="signInPassword" type="password" required>
+                <input id="signInPassword" type="password" autocomplete="current-password" required>
               </label>
               <button class="primary" type="submit">Sign in</button>
               <p id="signInMessage" class="message" role="status"></p>
@@ -108,14 +107,6 @@
               <p id="registerMessage" class="message" role="status"></p>
             </form>
 
-            <form id="adminSignInPanel" class="auth-panel" autocomplete="off">
-              <label>
-                <span>Admin password</span>
-                <input id="adminPin" type="password" autocomplete="current-password" placeholder="Admin password" required>
-              </label>
-              <button class="primary" type="submit">Open dashboard</button>
-              <p id="adminLoginMessage" class="message" role="status"></p>
-            </form>
           </div>
         </section>
 

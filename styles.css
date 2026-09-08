@@ -182,7 +182,7 @@ h3 {
 
 .auth-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   background: #e8e5da;
   border-bottom: 1px solid var(--line);
   padding: 4px;

@@ -5,6 +5,8 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  # Public configuration values, not credentials. Keep all other secret scanning enabled.
+  SECRETS_SCAN_OMIT_KEYS = "APP_ORIGIN,NODE_ENV,PORT"
 
 [functions]
   node_bundler = "esbuild"
