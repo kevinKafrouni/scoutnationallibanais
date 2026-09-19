@@ -5,7 +5,6 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { digest, hashPassword, verifyPassword, validPassword } from './security.js';
 
-const root = fileURLToPath(new URL('../', import.meta.url));
 const memberFields = `id, scout_id AS "scoutId", first_name AS "firstName", last_name AS "lastName",
   to_char(date_of_birth, 'YYYY-MM-DD') AS "dateOfBirth", blood_type AS "bloodType",
   photo_data_url AS "photoDataUrl", access_code AS "accessCode", registered_at AS "registeredAt"`;
@@ -169,6 +168,8 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
   });
   app.use('/api', (req, res) => res.status(404).json({ error: 'Unknown API endpoint.' }));
   // Explicit allowlist: never expose .env, source files, or database backups.
+  // Netlify serves static files itself; its CommonJS bundle has no import.meta.url.
+  const root = serveStatic ? fileURLToPath(new URL('../', import.meta.url)) : undefined;
   for (const file of serveStatic ? ['index.html', 'portal.html', 'app.js', 'styles.css', 'id-front.jpeg'] : []) {
     app.get(file === 'index.html' ? ['/', '/index.html'] : `/${file}`, (req, res) => res.sendFile(file, { root }));
   }

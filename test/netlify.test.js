@@ -26,7 +26,7 @@ test('Netlify function routing, secure sessions, registration, QR and origin pro
     assert.equal((await call('/api/login', { type: 'admin', password }, null, { origin: 'https://untrusted.example' })).statusCode, 403);
     const login = await call('/api/login', { type: 'admin', password });
     assert.equal(login.statusCode, 200);
-    const setCookie = login.multiValueHeaders['set-cookie'][0];
+    const setCookie = login.multiValueHeaders?.['set-cookie']?.[0] || login.headers['set-cookie'];
     assert.match(setCookie, /__Host-snl-session=/);
     assert.match(setCookie, /Secure/);
     assert.match(setCookie, /HttpOnly/);
@@ -35,7 +35,7 @@ test('Netlify function routing, secure sessions, registration, QR and origin pro
     const state = JSON.parse((await call('/api/state', undefined, adminCookie)).body);
     const registered = await call('/api/register', { firstName: 'Function', lastName: 'Test', dateOfBirth: '2000-01-01', bloodType: 'O+', accessCode: state.codes[0].code, password });
     assert.equal(registered.statusCode, 201);
-    const memberCookie = registered.multiValueHeaders['set-cookie'][0].split(';')[0];
+    const memberCookie = (registered.multiValueHeaders?.['set-cookie']?.[0] || registered.headers['set-cookie']).split(';')[0];
     const qr = await call('/api/card/qr', undefined, memberCookie);
     assert.equal(qr.statusCode, 200);
     assert.equal(qr.isBase64Encoded, true);
