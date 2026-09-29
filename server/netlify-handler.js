@@ -4,7 +4,12 @@ import { createApp } from './app.js';
 
 export function createNetlifyHandler(db, env = process.env) {
   const production = env.NETLIFY_DEV !== 'true';
-  const origin = env.APP_ORIGIN || env.URL;
+  // This site's production origin is public configuration. A copied local
+  // APP_ORIGIN must not prevent the deployed function from starting.
+  const configuredOrigin = env.APP_ORIGIN?.trim();
+  const origin = production
+    ? (configuredOrigin?.startsWith('https://') ? new URL(configuredOrigin).origin : 'https://scoutnationallibanais.org')
+    : configuredOrigin || env.URL;
   if (!origin) throw new Error('Set APP_ORIGIN to the Netlify site URL or your custom domain.');
   const app = createApp(db, { production, origin, serveStatic: false });
   const invoke = serverless(app, {

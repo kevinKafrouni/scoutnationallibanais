@@ -32,10 +32,10 @@ The website is built into `dist/`; `/api/*` and `/healthz` are handled by Netlif
    | --- | --- |
    | `DATABASE_URL` | Supabase **Transaction pooler** URI, port **6543**, from your project's Connect dialog, with the database password percent-encoded |
    | `DATABASE_POOL_MAX` | `2` to limit connections per function instance |
-   | `APP_ORIGIN` | Optional initially: leave unset to use Netlify's assigned site URL. Once the custom domain works, set `https://scoutnationallibanais.org` |
+   | `APP_ORIGIN` | Defaults to `https://scoutnationallibanais.org`. To sign in on a different deployment domain, set its HTTPS origin explicitly |
    | `AWS_LAMBDA_JS_RUNTIME` | `nodejs22.x` |
 
-   Do not copy your local `APP_ORIGIN=http://localhost:3000` into the deployed site. The app uses its existing database admin account, so Netlify Functions do not need `ADMIN_PASSWORD`. Do not give untrusted deploy previews production database credentials. Environment-variable changes require a new deployment.
+   Do not copy your local `APP_ORIGIN=http://localhost:3000` into the deployed site. Production falls back to `https://scoutnationallibanais.org` when `APP_ORIGIN` is missing or uses HTTP; local Netlify Dev still accepts its configured HTTP origin. The app uses its existing database admin account, so Netlify Functions do not need `ADMIN_PASSWORD`. Do not give untrusted deploy previews production database credentials. Environment-variable changes require a new deployment.
 4. Deploy and open the assigned `https://...netlify.app` URL. Verify `/healthz`, sign in as admin, refresh, and sign out. The API runs automatically as a Function; it does not start `server/index.js` or run migrations per request.
 5. In Netlify's domain management, add **scoutnationallibanais.org** and make it the primary domain. In GoDaddy DNS, use the exact apex and `www` DNS records shown by Netlify. Replace conflicting parking records only for these website hosts; preserve email records and unrelated subdomains. Enable/verify HTTPS in Netlify.
 6. Set `APP_ORIGIN=https://scoutnationallibanais.org` in Netlify and redeploy. Use that domain for sign-in. Other origins are rejected for write requests; the `www` alias should redirect to the primary domain.
