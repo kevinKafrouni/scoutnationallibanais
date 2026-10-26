@@ -74,9 +74,9 @@ test('database-backed registry integration', async (t) => {
     codes = (await request('/api/state', { cookie: adminCookie })).data.codes;
     assert.equal(codes.length, 2);
   });
-  const registration = { firstName: 'Test', lastName: 'Scout', dateOfBirth: '2005-04-17', bloodType: 'O+', password };
+  const registration = { fatherName: '  Jean   Pierre  ', firstName: 'Test', lastName: 'Scout', dateOfBirth: '2005-04-17', bloodType: 'O+', password };
   await t.test('registration validates inputs without consuming the access code', async () => {
-    for (const invalid of [{ password: '1234' }, { dateOfBirth: '2005-02-31' }, { bloodType: 'invalid' }, { photoDataUrl: 'data:image/svg+xml;base64,abcd' }]) {
+    for (const invalid of [{ fatherName: undefined }, { fatherName: '   ' }, { fatherName: 'a'.repeat(61) }, { fatherName: 123 }, { password: '1234' }, { dateOfBirth: '2005-02-31' }, { bloodType: 'invalid' }, { photoDataUrl: 'data:image/svg+xml;base64,abcd' }]) {
       assert.equal((await request('/api/register', { method: 'POST', body: { ...registration, accessCode: codes[0].code, ...invalid } })).status, 400);
     }
     assert.equal((await db.query('SELECT count(*)::int AS n FROM members')).rows[0].n, 0);
@@ -90,6 +90,7 @@ test('database-backed registry integration', async (t) => {
     assert.equal(result.data.codes.length, 0);
     member = result.data.members[0];
     assert.equal(member.scoutId, '00031001');
+    assert.equal(member.fatherName, 'Jean Pierre');
     assert.equal(member.dateOfBirth, registration.dateOfBirth);
     assert.equal(member.password, undefined);
     assert.equal(member.password_hash, undefined);
@@ -140,4 +141,23 @@ test('database-backed registry integration', async (t) => {
     assert.equal(result.status, 429);
     assert.equal(result.headers.get('retry-after'), '900');
   });
+});
+
+
+test('father name migration preserves legacy member records and is repeatable', async () => {
+  const engine = new PGlite();
+  const db = testDatabase(engine);
+  try {
+    await migrate(db, 'migration-test-password');
+    await db.query('ALTER TABLE members DROP COLUMN father_name');
+    await db.query(`INSERT INTO members (id, first_name, last_name, date_of_birth, blood_type, password_hash, access_code)
+      VALUES ('00000000-0000-0000-0000-000000000001', 'Existing', 'Scout', '2000-01-01', 'O+', 'legacy-hash', 'legacy-code')`);
+    await migrate(db);
+    await migrate(db);
+    const { rows } = await db.query('SELECT first_name, father_name FROM members');
+    assert.deepEqual(rows, [{ first_name: 'Existing', father_name: null }]);
+    await assert.rejects(db.query("UPDATE members SET father_name = ''"));
+    await db.query("UPDATE members SET father_name = 'Parent'");
+    assert.equal((await db.query('SELECT father_name FROM members')).rows[0].father_name, 'Parent');
+  } finally { await engine.close(); }
 });

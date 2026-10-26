@@ -54,7 +54,7 @@ test('Netlify function routing, secure sessions, registration, QR and origin pro
     const adminCookie = setCookie.split(';')[0];
     assert.equal((await call('/api/codes', { quantity: 1 }, adminCookie)).statusCode, 201);
     const state = JSON.parse((await call('/api/state', undefined, adminCookie)).body);
-    const registered = await call('/api/register', { firstName: 'Function', lastName: 'Test', dateOfBirth: '2000-01-01', bloodType: 'O+', accessCode: state.codes[0].code, password });
+    const registered = await call('/api/register', { fatherName: 'Parent', firstName: 'Function', lastName: 'Test', dateOfBirth: '2000-01-01', bloodType: 'O+', accessCode: state.codes[0].code, password });
     assert.equal(registered.statusCode, 201);
     const memberCookie = (registered.multiValueHeaders?.['set-cookie']?.[0] || registered.headers['set-cookie']).split(';')[0];
     const qr = await call('/api/card/qr', undefined, memberCookie);

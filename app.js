@@ -17,13 +17,10 @@ const elements = {
   memberSignUpPanel: document.querySelector("#memberSignUpPanel"),
   registerMessage: document.querySelector("#registerMessage"),
   memberCountPublic: document.querySelector("#memberCountPublic"),
-  unusedCodeCountPublic: document.querySelector("#unusedCodeCountPublic"),
   codeForm: document.querySelector("#codeForm"),
   codeQuantity: document.querySelector("#codeQuantity"),
   codeList: document.querySelector("#codeList"),
   memberCountAdmin: document.querySelector("#memberCountAdmin"),
-  unusedCodeCount: document.querySelector("#unusedCodeCount"),
-  usedCodeCount: document.querySelector("#usedCodeCount"),
   membersTable: document.querySelector("#membersTable"),
   memberSearch: document.querySelector("#memberSearch"),
   exportCsv: document.querySelector("#exportCsv"),
@@ -39,6 +36,7 @@ const elements = {
   cardQr: document.querySelector("#cardQr"),
   cardScoutId: document.querySelector("#cardScoutId"),
   cardFirstName: document.querySelector("#cardFirstName"),
+  cardFatherName: document.querySelector("#cardFatherName"),
   cardLastName: document.querySelector("#cardLastName"),
   cardDateOfBirth: document.querySelector("#cardDateOfBirth"),
   cardBloodType: document.querySelector("#cardBloodType"),
@@ -96,10 +94,7 @@ handle(elements.memberSignInPanel, elements.signInMessage, async () => {
 });
 handle(elements.memberSignUpPanel, elements.registerMessage, async () => {
   const form = new FormData(elements.memberSignUpPanel);
-  const [file] = document.querySelector('#profilePhoto').files;
   const body = Object.fromEntries(form);
-  delete body.profilePhoto;
-  body.photoDataUrl = file ? await fileToDataUrl(file) : '';
   await api('/register', 'POST', body);
   elements.memberSignUpPanel.reset();
   await refresh();
@@ -144,8 +139,8 @@ elements.exportCsv.addEventListener('click', async () => {
     await refresh();
     if (session.type !== 'admin') throw new Error('Please sign in as admin.');
     const rows = [
-      ['Scout ID', 'First name', 'Last name', 'Date of birth', 'Age', 'Blood type', 'Access code', 'Registered at'],
-      ...state.members.map(m => [m.scoutId, m.firstName, m.lastName, m.dateOfBirth, calculateAge(m.dateOfBirth), m.bloodType, m.accessCode, formatDateTime(m.registeredAt)]),
+      ['Scout ID', 'First name', 'Last name', "Father's name", 'Date of birth' , 'Age', 'Blood type', 'Access code', 'Registered at'],
+      ...state.members.map(m => [m.scoutId, m.firstName, m.lastName, m.fatherName || "", m.dateOfBirth, calculateAge(m.dateOfBirth), m.bloodType, m.accessCode, formatDateTime(m.registeredAt)]),
     ];
     downloadFile(`members-${todayStamp()}.csv`, toCsv(rows), 'text/csv;charset=utf-8');
   } catch (error) { showMessage(elements.adminMessage, error.message, true); }
@@ -201,10 +196,7 @@ function render() {
 
 function renderCountsAndLists() {
   elements.memberCountPublic.textContent = state.counts.members;
-  elements.unusedCodeCountPublic.textContent = state.counts.unused;
   elements.memberCountAdmin.textContent = state.members.length;
-  elements.unusedCodeCount.textContent = getUnusedCodes().length;
-  elements.usedCodeCount.textContent = state.codes.filter((code) => code.usedBy).length;
   renderCodes();
   renderMembers();
 }
@@ -224,6 +216,7 @@ function renderMemberProfile(member) {
   elements.cardScoutId.textContent = member.scoutId;
   elements.cardFirstName.textContent = member.firstName;
   elements.cardLastName.textContent = member.lastName;
+  elements.cardFatherName.textContent = member.fatherName || "-";
   elements.cardDateOfBirth.textContent = member.dateOfBirth;
   elements.cardBloodType.textContent = member.bloodType;
   elements.cardQr.src = createQrUrl(member);
@@ -253,7 +246,7 @@ function renderMembers() {
     .sort((a, b) => a.scoutId.localeCompare(b.scoutId));
 
   if (!members.length) {
-    elements.membersTable.innerHTML = '<tr><td colspan="8">No members found.</td></tr>';
+    elements.membersTable.innerHTML = '<tr><td colspan="9">No members found.</td></tr>';
     return;
   }
 
@@ -264,6 +257,7 @@ function renderMembers() {
           <td>${escapeHtml(member.scoutId)}</td>
           <td>${escapeHtml(member.firstName)}</td>
           <td>${escapeHtml(member.lastName)}</td>
+          <td>${escapeHtml(member.fatherName || "-")}</td>
           <td>${escapeHtml(member.dateOfBirth)}</td>
           <td>${calculateAge(member.dateOfBirth)}</td>
           <td>${escapeHtml(member.bloodType)}</td>
@@ -362,5 +356,6 @@ function escapeHtml(value) {
   });
 }
 
+if (location.hash === "#register") showAuthPanel("memberSignUpPanel");
 render();
 refresh().catch((error) => showMessage(elements.signInMessage, error.message, true));

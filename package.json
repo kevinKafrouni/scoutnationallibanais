@@ -12,8 +12,8 @@
     "start": "node server/index.js",
     "migrate": "node server/migrate.js",
     "test": "node --test test/registry.test.js test/db-config.test.js test/netlify.test.js",
-    "test:browser": "node --test test/browser.test.js",
-    "check": "node --check app.js && node --check server/app.js && node --check server/index.js"
+    "test:browser": "node --test test/browser.test.js test/public.test.js",
+    "check": "node --check site.js && node --check site-config.js && node --check contact-service.js && node --check app.js && node --check server/app.js && node --check server/index.js"
   },
   "dependencies": {
     "dotenv": "^16.6.1",

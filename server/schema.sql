@@ -11,6 +11,10 @@ CREATE TABLE IF NOT EXISTS members (
   access_code text UNIQUE NOT NULL,
   registered_at timestamptz NOT NULL DEFAULT now()
 );
+-- Existing members have no recorded father name; preserve their records.
+ALTER TABLE members ADD COLUMN IF NOT EXISTS father_name text
+  CHECK (father_name IS NULL OR length(btrim(father_name)) BETWEEN 1 AND 60);
+
 CREATE TABLE IF NOT EXISTS access_codes (
   code text PRIMARY KEY,
   created_at timestamptz NOT NULL DEFAULT now(),

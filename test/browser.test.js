@@ -7,6 +7,27 @@ import { createApp } from '../server/app.js';
 import { migrate } from '../server/migrate.js';
 import { testDatabase } from './support/database.js';
 
+async function checkResponsiveLayout(page, card = false) {
+  for (const width of [320, 390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `Page overflows at ${width}px`);
+    if (card) {
+      const layout = await page.locator('.id-card').evaluate(element => {
+        const bounds = element.getBoundingClientRect();
+        const nodes = [...element.querySelectorAll('.id-card-brand, dt, dd, .photo-box, .qr-code')];
+        const contained = nodes.every(node => {
+          const rect = node.getBoundingClientRect();
+          return rect.left >= bounds.left && rect.right <= bounds.right && rect.bottom <= bounds.bottom;
+        });
+        const header = element.querySelector('.id-card-brand').getBoundingClientRect();
+        const body = element.querySelector('.id-card-body').getBoundingClientRect();
+        return contained && header.bottom <= body.top;
+      });
+      assert.ok(layout, `Card content overlaps or escapes at ${width}px`);
+    }
+  }
+}
+
 test('browser registration, reload, photo, exports, and sign-in', { timeout: 60000 }, async (t) => {
   const engine = new PGlite();
   const db = testDatabase(engine);
@@ -29,9 +50,12 @@ test('browser registration, reload, photo, exports, and sign-in', { timeout: 600
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(origin);
   await expect(page.locator('h1')).toContainText('Adventure');
+  await checkResponsiveLayout(page);
   await expect(page.locator('input[type="password"]')).toHaveCount(0);
-  await page.getByRole('link', { name: 'Member portal', exact: true }).first().click();
+  await page.getByRole('link', { name: 'Login / Register', exact: true }).first().click();
   await expect(page.locator('#memberCountPublic')).toHaveText('0');
+  await expect(page.locator('#unusedCodeCountPublic, #unusedCodeCount, #usedCodeCount')).toHaveCount(0);
+  await checkResponsiveLayout(page);
   await expect(page.locator('.auth-tab')).toHaveCount(2);
   await expect(page.locator('#adminSignInPanel')).toHaveCount(0);
   await page.locator('#signInScoutId').fill('admin');
@@ -52,15 +76,20 @@ test('browser registration, reload, photo, exports, and sign-in', { timeout: 600
   await page.locator('#accessCode').fill(code);
   await page.locator('#firstName').fill('Browser');
   await page.locator('#lastName').fill('Scout');
+  await page.locator('#fatherName').fill('Parent Scout');
   await page.locator('#dateOfBirth').fill('2004-05-12');
   await page.locator('#bloodType').selectOption('A+');
   await page.locator('#signUpPassword').fill(password);
   await page.locator('#memberSignUpPanel button').click();
   await expect(page.locator('#memberView')).toBeVisible();
   await expect(page.locator('#profileName')).toHaveText('Browser Scout');
+  await checkResponsiveLayout(page, true);
+  await page.locator('#cardLastName').evaluate(node => { node.textContent = 'LongFamilyName'.repeat(4); });
+  await checkResponsiveLayout(page, true);
   const scoutId = await page.locator('#profileScoutId').textContent();
   await page.reload();
   await expect(page.locator('#profileScoutId')).toHaveText(scoutId);
+  await expect(page.locator('#cardFatherName')).toHaveText('Parent Scout');
   await expect(page.locator('#cardQr')).toHaveJSProperty('complete', true);
   assert.ok(await page.locator('#cardQr').evaluate(image => image.naturalWidth > 0));
   await page.locator('#profilePhotoUpdate').setInputFiles({
@@ -85,6 +114,7 @@ test('browser registration, reload, photo, exports, and sign-in', { timeout: 600
   await page.locator('#memberSignInPanel button').click();
   await expect(page.locator('#memberCountAdmin')).toHaveText('1');
   await expect(page.locator('#membersTable')).toContainText('Browser');
+  await checkResponsiveLayout(page);
   const downloaded = page.waitForEvent('download');
   await page.locator('#exportJson').click();
   const download = await downloaded;
@@ -93,6 +123,7 @@ test('browser registration, reload, photo, exports, and sign-in', { timeout: 600
   for await (const chunk of stream) chunks.push(chunk);
   const exported = JSON.parse(Buffer.concat(chunks).toString());
   assert.equal(exported.members.length, 1);
+  assert.equal(exported.members[0].fatherName, 'Parent Scout');
   assert.equal(exported.members[0].password, undefined);
   assert.equal(exported.session, undefined);
   assert.deepEqual(errors, []);

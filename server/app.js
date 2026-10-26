@@ -5,7 +5,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { digest, hashPassword, verifyPassword, validPassword } from './security.js';
 
-const memberFields = `id, scout_id AS "scoutId", first_name AS "firstName", last_name AS "lastName",
+const memberFields = `id, scout_id AS "scoutId", first_name AS "firstName", last_name AS "lastName", father_name AS "fatherName",
   to_char(date_of_birth, 'YYYY-MM-DD') AS "dateOfBirth", blood_type AS "bloodType",
   photo_data_url AS "photoDataUrl", access_code AS "accessCode", registered_at AS "registeredAt"`;
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -19,13 +19,15 @@ function photo(value = '') {
 function profile(body) {
   const firstName = String(body.firstName || '').trim().replace(/\s+/g, ' ');
   const lastName = String(body.lastName || '').trim().replace(/\s+/g, ' ');
+  const fatherName = typeof body.fatherName === 'string' ? body.fatherName.trim().replace(/\s+/g, ' ') : '';
+  if (!fatherName || fatherName.length > 60) throw fail(400, "Enter a father's name, up to 60 characters.");
   const date = body.dateOfBirth;
   if (!firstName || !lastName || firstName.length > 60 || lastName.length > 60) throw fail(400, 'Enter a first and last name, up to 60 characters each.');
   const parsed = new Date(`${date}T00:00:00Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date || date < '1900-01-01' || date > new Date().toISOString().slice(0, 10)) throw fail(400, 'Enter a valid date of birth from 1900 through today.');
   if (!['A+','A-','B+','B-','AB+','AB-','O+','O-','Unknown'].includes(body.bloodType)) throw fail(400, 'Choose a valid blood type.');
   if (!validPassword(body.password)) throw fail(400, 'Use a password of 12–128 characters.');
-  return { firstName, lastName, date, photo: photo(body.photoDataUrl) };
+  return { firstName, lastName, fatherName, date, photo: photo(body.photoDataUrl) };
 }
 
 export function createApp(db, { production = false, origin = 'http://localhost:3000', trustProxy = 0, serveStatic = true } = {}) {
@@ -123,8 +125,8 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
       const existing = (await client.query('SELECT code, used_by FROM access_codes WHERE code = $1 FOR UPDATE', [code])).rows[0];
       if (!existing || existing.used_by) throw fail(409, 'This access code is invalid or has already been used.');
       const id = randomUUID();
-      await client.query(`INSERT INTO members (id,first_name,last_name,date_of_birth,blood_type,password_hash,photo_data_url,access_code)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [id, fields.firstName, fields.lastName, fields.date, req.body.bloodType, passwordHash, fields.photo, code]);
+      await client.query(`INSERT INTO members (id,first_name,last_name,date_of_birth,blood_type,password_hash,photo_data_url,access_code,father_name)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, fields.firstName, fields.lastName, fields.date, req.body.bloodType, passwordHash, fields.photo, code, fields.fatherName]);
       await client.query('UPDATE access_codes SET used_by = $1, used_at = now() WHERE code = $2', [id, code]);
       token = await issueSession(client, req, 'member', id);
       await client.query('COMMIT');
@@ -170,8 +172,8 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
   // Explicit allowlist: never expose .env, source files, or database backups.
   // Netlify serves static files itself; its CommonJS bundle has no import.meta.url.
   const root = serveStatic ? fileURLToPath(new URL('../', import.meta.url)) : undefined;
-  for (const file of serveStatic ? ['index.html', 'portal.html', 'app.js', 'styles.css', 'id-front.jpeg'] : []) {
-    app.get(file === 'index.html' ? ['/', '/index.html'] : `/${file}`, (req, res) => res.sendFile(file, { root }));
+  for (const file of serveStatic ? ['index.html', 'portal.html', 'app.js', 'styles.css', 'id-front.jpeg', 'snl-logo.jpeg', 'favicon.ico', 'contact.html', 'site.js', 'site-config.js', 'contact-service.js', 'hero-mountains.jpg'] : []) {
+    app.get(file === 'index.html' ? ['/', '/index.html'] : file === 'contact.html' ? ['/contact', '/contact/', '/contact.html'] : `/${file}`, (req, res) => res.sendFile(file, { root }));
   }
   app.use((error, req, res, next) => {
     const status = error.status || 500;
