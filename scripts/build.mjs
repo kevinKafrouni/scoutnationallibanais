@@ -1,6 +1,6 @@
 import { copyFile, mkdir, rm } from 'node:fs/promises';
 const output = new URL('../dist/', import.meta.url);
-const assets = ['index.html', 'portal.html', 'app.js', 'styles.css', 'id-front.jpeg', 'snl-logo.jpeg', 'favicon.ico', 'contact.html', 'site.js', 'site-config.js', 'contact-service.js', 'hero-mountains.jpg'];
+const assets = ['index.html', 'portal.html', 'app.js', 'card-numbering-config.js', 'styles.css', 'id-front.jpeg', 'snl-logo.jpeg', 'favicon.ico', 'contact.html', 'site.js', 'site-config.js', 'contact-service.js', 'hero-mountains.jpg'];
 // Recreate the publish directory so stale files cannot be deployed.
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });

@@ -13,7 +13,7 @@ export function createNetlifyHandler(db, env = process.env) {
   if (!origin) throw new Error('Set APP_ORIGIN to the Netlify site URL or your custom domain.');
   const app = createApp(db, { production, origin, serveStatic: false });
   const invoke = serverless(app, {
-    binary: ['image/png'],
+    binary: ['image/png', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
     request(req, event) {
       // Netlify supplies this header. Do not trust user-supplied X-Forwarded-For.
       const address = event.headers?.['x-nf-client-connection-ip'];

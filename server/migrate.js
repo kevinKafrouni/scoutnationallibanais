@@ -1,12 +1,18 @@
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { hashPassword, validPassword } from './security.js';
+import { resolveUsername } from './member-identifiers.js';
 export async function migrate(db, password) {
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     await client.query("SELECT pg_advisory_xact_lock(31001)");
     await client.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'));
+    const unnamed = (await client.query('SELECT id,first_name,last_name FROM members WHERE username IS NULL ORDER BY id')).rows;
+    for (const member of unnamed) {
+      const name = await resolveUsername(client, null, member.first_name, member.last_name);
+      await client.query('UPDATE members SET username=$1,revision=revision+1 WHERE id=$2', [name, member.id]);
+    }
     const existing = await client.query('SELECT id FROM admin_account WHERE id = 1');
     if (!existing.rowCount) {
       if (!validPassword(password)) throw new Error('Initial ADMIN_PASSWORD must contain 12–128 characters.');

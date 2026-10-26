@@ -1,3 +1,5 @@
+import { cardCatalog, formatCardParts } from './card-numbering-config.js';
+
 const state = { members: [], codes: [], counts: { members: "...", unused: "..." } };
 let session = { type: null, memberId: null };
 
@@ -113,11 +115,20 @@ elements.signOutButton.addEventListener('click', async () => {
   } catch (error) { window.alert(error.message); }
   finally { elements.signOutButton.disabled = false; }
 });
+for (const [selector, values, selected] of [
+  ['#codeGroup', cardCatalog.groups, ''], ['#codeRegion', cardCatalog.regions, '00'], ['#codeRole', cardCatalog.roles, '2'],
+]) {
+  const select = document.querySelector(selector);
+  for (const [value, label] of values) select.add(new Option(`${value} — ${label}`, value, false, value === selected));
+}
 handle(elements.codeForm, elements.adminMessage, async () => {
   const quantity = Number(elements.codeQuantity.value);
-  await api('/codes', 'POST', { quantity });
+  const groupCode = document.querySelector('#codeGroup').value;
+  const regionCode = document.querySelector('#codeRegion').value;
+  const roleCode = document.querySelector('#codeRole').value;
+  await api('/codes', 'POST', { quantity, groupCode, regionCode, roleCode });
   await refresh();
-  showMessage(elements.adminMessage, `${quantity} access codes generated.`);
+  showMessage(elements.adminMessage, `${quantity} access codes generated for group ${groupCode}, region ${regionCode}, role ${roleCode}.`);
 });
 handle(elements.pinForm, elements.adminMessage, async () => {
   await api('/admin/password', 'PUT', { password: elements.newPin.value, currentPassword: document.querySelector('#currentAdminPassword').value });
@@ -133,22 +144,59 @@ handle(elements.photoForm, elements.profileMessage, async () => {
   showMessage(elements.profileMessage, 'Profile photo updated.');
 });
 elements.memberSearch.addEventListener('input', renderMembers);
+handle(document.querySelector('#activationForm'), document.querySelector('#activationMessage'), async () => {
+  await api('/activate', 'POST', Object.fromEntries(new FormData(document.querySelector('#activationForm'))));
+  document.querySelector('#activationForm').reset();
+  await refresh();
+});
 
 const memberEditor = document.querySelector('#memberEditor');
 const manageMessage = document.querySelector('#memberManageMessage');
 let editingMemberId = null;
+function numberingFields(member = null) {
+  const mode = member?.cardIdMode || 'structured';
+  const options = (values, selected) => values.map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${value} — ${escapeHtml(label)}</option>`).join('');
+  return `<label><span>Card ID mode</span><select name="cardIdMode"><option value="structured" ${mode === 'structured' ? 'selected' : ''}>Generate from region / group / role / serial</option><option value="manual" ${mode === 'manual' ? 'selected' : ''}>Keep a manual Card ID</option></select></label>
+    <label data-card-part><span>Region</span><select name="regionCode">${options(cardCatalog.regions, member?.regionCode || '00')}</select></label>
+    <label data-card-part><span>Group</span><select name="groupCode">${options(cardCatalog.groups, member?.groupCode || '00')}</select></label>
+    <label data-card-part><span>Role</span><select name="roleCode">${options(cardCatalog.roles, member?.roleCode || '2')}</select></label>
+    <label data-card-part><span>Serial (blank = automatic)</span><input name="cardSerial" inputmode="numeric" pattern="[0-9]{1,4}" maxlength="4" value="${escapeHtml(member?.cardSerial || '')}"></label>
+    <label><span>Card ID (printed on card)</span><input name="cardId" maxlength="60" value="${escapeHtml(member?.cardId || '')}"></label>`;
+}
+function setupNumberingEditor(root) {
+  function update() {
+    const manual = root.querySelector('[name="cardIdMode"]').value === 'manual';
+    const card = root.querySelector('[name="cardId"]');
+    for (const label of root.querySelectorAll('[data-card-part]')) {
+      label.classList.toggle('hidden', manual);
+      label.querySelector('input,select').disabled = manual;
+    }
+    card.readOnly = !manual;
+    card.required = manual;
+    card.placeholder = manual ? 'Enter Card ID' : 'Automatically assigned on save';
+    if (!manual) {
+      const values = Object.fromEntries([...root.querySelectorAll('[name]')].map(input => [input.name, input.value]));
+      card.value = values.cardSerial ? formatCardParts(values) : '';
+    }
+  }
+  root.querySelector('[name="cardIdMode"]').addEventListener('change', update);
+  for (const input of root.querySelectorAll('[data-card-part] input,[data-card-part] select')) input.addEventListener('input', update);
+  update();
+}
 function openMemberEditor(member = null) {
   editingMemberId = member?.id || null;
   document.querySelector('#memberEditorTitle').textContent = member ? 'Edit member' : 'Add member';
+  document.querySelector('#memberEditorLoginId').textContent = member ? `Login ID: ${member.scoutId} (read-only)` : 'A login ID is generated automatically.';
   const fields = [
-    ['username', 'Username', 'text'], ['firstName', 'First name', 'text'],
+    ['firstName', 'First name', 'text'],
     ['lastName', 'Last name', 'text'], ['fatherName', "Father’s name", 'text'],
     ['dateOfBirth', 'Date of birth', 'date'], ['password', member ? 'New password (optional)' : 'Password', 'password'],
   ];
   document.querySelector('#memberEditorFields').innerHTML = fields.map(([name, label, type]) =>
-    `<label><span>${label}</span><input name="${name}" type="${type}" ${name === 'password' ? `minlength="12" maxlength="128" autocomplete="new-password" ${member ? '' : 'required'}` : name === 'username' ? 'maxlength="30" autocapitalize="none"' : 'required maxlength="60"'} value="${name === 'password' ? '' : escapeHtml(member?.[name] || '')}"></label>`
-  ).join('') + `<label><span>Blood type</span><select name="bloodType" required>${['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Unknown'].map(type => `<option ${member?.bloodType === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label>`;
+    `<label><span>${label}</span><input name="${name}" type="${type}" ${name === 'password' ? `minlength="12" maxlength="128" autocomplete="new-password" ${member ? '' : 'required'}` : name === 'cardId' ? `maxlength="60" ${member ? 'required' : ''}` : name === 'username' ? 'maxlength="30" autocapitalize="none"' : 'required maxlength="60"'} value="${name === 'password' ? '' : escapeHtml(member?.[name] || '')}"></label>`
+  ).join('') + `<label><span>Blood type</span><select name="bloodType" required>${['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Unknown'].map(type => `<option ${member?.bloodType === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label>` + numberingFields(member);
   memberEditor.classList.remove('hidden');
+  setupNumberingEditor(memberEditor);
   memberEditor.querySelector('input').focus();
 }
 document.querySelector('#addMember').addEventListener('click', () => openMemberEditor());
@@ -182,8 +230,8 @@ elements.exportCsv.addEventListener('click', async () => {
     await refresh();
     if (session.type !== 'admin') throw new Error('Please sign in as admin.');
     const rows = [
-      ['Scout ID', 'First name', 'Last name', "Father's name", 'Date of birth' , 'Age', 'Blood type', 'Access code', 'Registered at'],
-      ...state.members.map(m => [m.scoutId, m.firstName, m.lastName, m.fatherName || "", m.dateOfBirth, calculateAge(m.dateOfBirth), m.bloodType, m.accessCode, formatDateTime(m.registeredAt)]),
+      ['Card ID', 'Login ID', 'Username', 'First name', 'Last name', "Father's name", 'Date of birth' , 'Age', 'Blood type', 'Access code', 'Registered at'],
+      ...state.members.map(m => [m.cardId, m.scoutId, m.username, m.firstName, m.lastName, m.fatherName || "", m.dateOfBirth, calculateAge(m.dateOfBirth), m.bloodType, m.accessCode, formatDateTime(m.registeredAt)]),
     ];
     downloadFile(`members-${todayStamp()}.csv`, toCsv(rows), 'text/csv;charset=utf-8');
   } catch (error) { showMessage(elements.adminMessage, error.message, true); }
@@ -213,6 +261,126 @@ elements.downloadUnusedCodes.addEventListener('click', async () => {
   } catch (error) { showMessage(elements.adminMessage, error.message, true); }
 });
 
+let importRows = null;
+let importRequestId = null;
+let importedCredentials = [];
+let bulkIdMembers = [];
+const importMessage = document.querySelector('#importMessage');
+async function downloadWorkbook(path, filename, body) {
+  const response = await fetch(`/api${path}`, {
+    method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (!response.ok || !response.headers.get('content-type')?.includes(mime)) {
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 404 && data.error === 'Unknown API endpoint.') {
+      throw new Error(['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
+        ? 'The local server is running an older API. Stop it with Ctrl+C, run npm start again, then refresh this page.'
+        : 'The deployed API does not include Excel exports yet. Deploy the current server functions and refresh this page.');
+    }
+    throw new Error(data.error || 'Excel download is unavailable. Refresh the page and sign in again.');
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes[0] !== 80 || bytes[1] !== 75 || bytes[2] !== 3 || bytes[3] !== 4) throw new Error('The server returned an invalid Excel file. Please try again.');
+  downloadFile(filename, bytes, mime);
+}
+for (const [id, path, filename] of [
+  ['downloadExcelTemplate', '/admin/members-workbook?template=1', 'member-template.xlsx'],
+  ['exportMembersWorkbook', '/admin/members-workbook', 'members-bulk-edit.xlsx'],
+]) document.querySelector(`#${id}`).addEventListener('click', async event => {
+  event.currentTarget.disabled = true;
+  try { await downloadWorkbook(path, filename); showMessage(importMessage, 'Excel download ready.'); }
+  catch (error) { showMessage(importMessage, error.message, true); }
+  finally { document.querySelector(`#${id}`).disabled = false; }
+});
+function clearPreview() {
+  importRows = null;
+  importRequestId = null;
+  document.querySelector('#importPreview').classList.add('hidden');
+  document.querySelector('#importPreviewRows').replaceChildren();
+  document.querySelector('#importErrors').replaceChildren();
+}
+function clearImportData() {
+  clearPreview();
+  importedCredentials = [];
+  bulkIdMembers = [];
+  document.querySelector('#importForm').reset();
+  document.querySelector('#bulkIdForm').classList.add('hidden');
+  document.querySelector('#bulkIdRows').replaceChildren();
+  document.querySelector('#downloadImportCredentials').classList.add('hidden');
+  document.querySelector('#credentialsNotice').classList.add('hidden');
+}
+function renderImportPreview(preview) {
+  importRows = preview.errors.length ? null : preview.rows;
+  importRequestId = preview.requestId;
+  document.querySelector('#importSummary').textContent = `${preview.summary.added} new records, ${preview.summary.updated} records to update. ${preview.errors.length ? 'Fix the errors and preview again.' : 'Review the rows, then confirm to save all changes.'}`;
+  document.querySelector('#importErrors').innerHTML = preview.errors.map(error => `<li>Row ${error.row}: ${escapeHtml(error.message)}</li>`).join('');
+  document.querySelector('#importPreviewRows').innerHTML = preview.rows.map(row => `<tr><td>${row.sourceRow}</td><td>${row.id ? 'Update' : 'Add'}</td><td>${escapeHtml(row.cardId || 'Automatic')}</td><td>${escapeHtml(row.username || '-')}</td><td>${escapeHtml(`${row.firstName} ${row.lastName}`)}</td><td>${escapeHtml(row.fatherName || '-')}</td><td>${escapeHtml(row.dateOfBirth)}</td><td>${escapeHtml(row.bloodType)}</td></tr>`).join('');
+  document.querySelector('#confirmImport').disabled = !importRows;
+  document.querySelector('#importPreview').classList.remove('hidden');
+}
+document.querySelector('#importFile').addEventListener('change', clearPreview);
+document.querySelector('#cancelImport').addEventListener('click', clearPreview);
+handle(document.querySelector('#importForm'), importMessage, async () => {
+  clearPreview();
+  const file = document.querySelector('#importFile').files[0];
+  if (!file || !/\.xlsx$/i.test(file.name) || file.size > 500000) throw new Error('Choose an .xlsx file smaller than 500 KB.');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  renderImportPreview(await api('/admin/import/preview', 'POST', { fileData: btoa(binary) }));
+});
+document.querySelector('#confirmImport').addEventListener('click', async () => {
+  if (!importRows) return;
+  const button = document.querySelector('#confirmImport');
+  button.disabled = true;
+  try {
+    const result = await api('/admin/import', 'POST', { rows: importRows, requestId: importRequestId });
+    importedCredentials.push(...result.credentials);
+    clearPreview();
+    document.querySelector('#bulkIdForm').classList.add('hidden');
+    document.querySelector('#bulkIdRows').replaceChildren();
+    document.querySelector('#importForm').reset();
+    document.querySelector('#downloadImportCredentials').classList.toggle('hidden', !importedCredentials.length);
+    document.querySelector('#credentialsNotice').classList.toggle('hidden', !importedCredentials.length);
+    showMessage(importMessage, result.alreadyApplied ? 'This import was already saved. If you missed the credentials download, reset the new members’ passwords using Edit member.' : `Saved ${result.added} new records and updated ${result.updated} records.`);
+    await refresh().catch(() => showMessage(importMessage, 'Changes were saved. Refresh the page to see the latest records.'));
+  } catch (error) { showMessage(importMessage, error.message, true); }
+  finally { button.disabled = !importRows; }
+});
+document.querySelector('#downloadImportCredentials').addEventListener('click', async () => {
+  const button = document.querySelector('#downloadImportCredentials');
+  button.disabled = true;
+  try { await downloadWorkbook('/admin/credentials-workbook', `member-credentials-${todayStamp()}.xlsx`, { credentials: importedCredentials }); }
+  catch (error) { showMessage(importMessage, error.message, true); }
+  finally { button.disabled = false; }
+});
+document.querySelector('#bulkEditIds').addEventListener('click', () => {
+  clearPreview();
+  const query = elements.memberSearch.value.trim().toLowerCase();
+  bulkIdMembers = state.members.filter(member => Object.values(member).join(' ').toLowerCase().includes(query));
+  if (!bulkIdMembers.length || bulkIdMembers.length > 200) return showMessage(importMessage, 'Use member search to choose between 1 and 200 records.', true);
+  document.querySelector('#bulkIdRows').innerHTML = bulkIdMembers.map(member => `<tr data-record-id="${escapeHtml(member.id)}"><td>${escapeHtml(`${member.firstName} ${member.lastName}`)}</td><td>${escapeHtml(member.cardId)}</td><td><div class="profile-grid">${numberingFields(member)}</div></td></tr>`).join('');
+  for (const row of document.querySelectorAll('#bulkIdRows tr')) setupNumberingEditor(row);
+  document.querySelector('#bulkIdForm').classList.remove('hidden');
+  document.querySelector('#bulkIdForm').scrollIntoView({ block: 'start', behavior: 'smooth' });
+});
+document.querySelector('#cancelBulkIds').addEventListener('click', () => { document.querySelector('#bulkIdForm').classList.add('hidden'); clearPreview(); });
+handle(document.querySelector('#bulkIdForm'), importMessage, async () => {
+  const rows = [...document.querySelectorAll('#bulkIdRows tr')].map(row => {
+    const member = bulkIdMembers.find(member => member.id === row.dataset.recordId);
+    return { id: member.id, revision: member.revision, ...Object.fromEntries([...row.querySelectorAll('[name]')].filter(input => !input.disabled).map(input => [input.name, input.value.trim()])) };
+  }).filter(row => {
+    const member = bulkIdMembers.find(member => member.id === row.id);
+    return ['cardIdMode','cardId','regionCode','groupCode','roleCode','cardSerial'].some(key => row[key] !== undefined && row[key] !== (member[key] || ''));
+  });
+  clearPreview();
+  if (!rows.length) throw new Error('Change at least one Card ID to preview.');
+  renderImportPreview(await api('/admin/import/preview', 'POST', { rows }));
+});
+
 function showAuthPanel(panelId) {
   elements.authTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.authPanel === panelId));
   elements.authPanels.forEach((panel) => panel.classList.toggle("active", panel.id === panelId));
@@ -224,16 +392,19 @@ function render() {
     memberEditor.classList.add('hidden');
     editingMemberId = null;
     showMessage(manageMessage, '');
+    clearImportData();
   }
   elements.authView.classList.toggle("hidden", Boolean(session.type));
-  elements.memberView.classList.toggle("hidden", session.type !== "member");
+  const pending = session.type === 'member' && session.needsAccessCode;
+  document.querySelector('#activationView').classList.toggle('hidden', !pending);
+  elements.memberView.classList.toggle("hidden", session.type !== "member" || pending);
   elements.adminView.classList.toggle("hidden", session.type !== "admin");
   elements.sessionActions.classList.toggle("hidden", !session.type);
 
   if (session.type === "member") {
     const member = state.members.find((item) => item.id === session.memberId);
-    elements.sessionName.textContent = member ? `${member.firstName} ${member.lastName}` : "";
-    renderMemberProfile(member);
+    elements.sessionName.textContent = member ? `${member.firstName} ${member.lastName}` : 'Account activation';
+    if (!pending) renderMemberProfile(member);
   } else if (session.type === "admin") {
     elements.sessionName.textContent = "Admin";
   } else {
@@ -254,7 +425,9 @@ function renderMemberProfile(member) {
   if (!member) return;
   const fullName = `${member.firstName} ${member.lastName}`;
   elements.profileName.textContent = fullName;
-  elements.profileScoutId.textContent = member.scoutId;
+  elements.profileScoutId.textContent = member.cardId;
+  document.querySelector('#profileLoginId').textContent = member.scoutId;
+  document.querySelector('#profileUsername').textContent = member.username;
   elements.profileDateOfBirth.textContent = member.dateOfBirth;
   elements.profileAge.textContent = calculateAge(member.dateOfBirth);
   elements.profileBloodType.textContent = member.bloodType;
@@ -262,7 +435,7 @@ function renderMemberProfile(member) {
   elements.cardPhoto.src = member.photoDataUrl || "";
   elements.cardPhoto.classList.toggle("visible", Boolean(member.photoDataUrl));
   elements.cardInitials.classList.toggle("hidden", Boolean(member.photoDataUrl));
-  elements.cardScoutId.textContent = member.scoutId;
+  elements.cardScoutId.textContent = member.cardId;
   elements.cardFirstName.textContent = member.firstName;
   elements.cardLastName.textContent = member.lastName;
   elements.cardFatherName.textContent = member.fatherName || "-";
@@ -281,7 +454,7 @@ function renderCodes() {
 
   elements.codeList.innerHTML = state.codes
     .slice(0, 300)
-    .map((code) => `<div class="code-chip ${code.usedBy ? "used" : ""}">${escapeHtml(code.code)}</div>`)
+    .map((code) => `<div class="code-item"><div class="code-chip ${code.usedBy ? "used" : ""}">${escapeHtml(code.code)}</div><small>${code.groupCode ? `${escapeHtml(cardCatalog.groups.find(([value]) => value === code.groupCode)?.[1] || code.groupCode)} · Region ${escapeHtml(code.regionCode)} · Role ${escapeHtml(code.roleCode)}` : 'Legacy code'}</small></div>`)
     .join("");
 }
 
@@ -295,7 +468,7 @@ function renderMembers() {
     .sort((a, b) => a.scoutId.localeCompare(b.scoutId));
 
   if (!members.length) {
-    elements.membersTable.innerHTML = '<tr><td colspan="11">No members found.</td></tr>';
+    elements.membersTable.innerHTML = '<tr><td colspan="12">No members found.</td></tr>';
     return;
   }
 
@@ -303,6 +476,7 @@ function renderMembers() {
     .map(
       (member) => `
         <tr>
+          <td>${escapeHtml(member.cardId)}</td>
           <td>${escapeHtml(member.scoutId)}</td>
           <td>${escapeHtml(member.username || '-')}</td>
           <td>${escapeHtml(member.firstName)}</td>
@@ -311,7 +485,7 @@ function renderMembers() {
           <td>${escapeHtml(member.dateOfBirth)}</td>
           <td>${calculateAge(member.dateOfBirth)}</td>
           <td>${escapeHtml(member.bloodType)}</td>
-          <td>${escapeHtml(member.accessCode)}</td>
+          <td>${member.accessCode ? escapeHtml(member.accessCode) : 'Awaiting activation'}</td>
           <td>${formatDateTime(member.registeredAt)}</td>
           <td><button type="button" class="secondary" data-action="edit" data-member-id="${escapeHtml(member.id)}">Edit</button> <button type="button" class="secondary" data-action="remove" data-member-id="${escapeHtml(member.id)}">Remove</button></td>
         </tr>

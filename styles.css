@@ -322,6 +322,7 @@ select:focus {
 
 .brand-text {
   text-align: center;
+  min-width: 0;
 }
 
 .id-card-brand p {
@@ -357,9 +358,13 @@ select:focus {
   align-items: center;
   gap: 8px;
   font-size: 1rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .card-title b {
+  min-width: 0;
+  overflow-wrap: anywhere;
   background: #dfe3eb;
   padding: 7px 11px;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
@@ -562,6 +567,13 @@ dd {
   text-decoration: line-through;
   background: #f1f2ef;
 }
+
+.code-item { min-width: 0; }
+.code-item small { display: block; margin-top: 6px; overflow-wrap: anywhere; }
+#codeForm { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: 0 1 560px; width: 100%; }
+#codeForm label:first-child { grid-column: 1 / -1; }
+#codeForm input { width: 100%; }
+@media (max-width: 600px) { #codeForm { grid-template-columns: minmax(0, 1fr); flex-basis: auto; } }
 
 .search {
   max-width: 320px;

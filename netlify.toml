@@ -10,7 +10,7 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["pg", "express", "serverless-http", "qrcode"]
+  external_node_modules = ["pg", "express", "serverless-http", "qrcode", "exceljs", "jszip"]
   included_files = ["server/certs/supabase-ca.crt"]
 
 [functions.cleanup]

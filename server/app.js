@@ -4,18 +4,17 @@ import QRCode from 'qrcode';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { digest, hashPassword, verifyPassword, validPassword } from './security.js';
+import { installMemberImport } from './member-import.js';
+import { resolveUsername } from './member-identifiers.js';
+import { cardPlan, resolveCard, resolveCodeCard, advanceCardSerial } from './card-numbering.js';
 
-const memberFields = `id, username, scout_id AS "scoutId", first_name AS "firstName", last_name AS "lastName", father_name AS "fatherName",
+const memberFields = `id, revision, username, scout_id AS "scoutId", card_id AS "cardId",
+  region_code AS "regionCode",group_code AS "groupCode",role_code AS "roleCode",card_serial AS "cardSerial",
+  CASE WHEN region_code IS NULL THEN 'manual' ELSE 'structured' END AS "cardIdMode",
+  first_name AS "firstName", last_name AS "lastName", father_name AS "fatherName",
   to_char(date_of_birth, 'YYYY-MM-DD') AS "dateOfBirth", blood_type AS "bloodType",
   photo_data_url AS "photoDataUrl", access_code AS "accessCode", registered_at AS "registeredAt"`;
 const fail = (status, message) => Object.assign(new Error(message), { status });
-function username(value) {
-  if (value === undefined || value === null || value === '') return null;
-  if (typeof value !== 'string') throw fail(400, 'Enter a valid username.');
-  const name = value.trim().toLowerCase();
-  if (!/^[a-z][a-z0-9._-]{2,29}$/.test(name) || name === 'admin') throw fail(400, 'Username must start with a letter and contain 3–30 letters, numbers, dots, underscores or hyphens. The name admin is reserved.');
-  return name;
-}
 function photo(value = '') {
   if (typeof value !== 'string' || value.length > 750000 ||
       (value !== '' && !/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/.test(value))) {
@@ -68,14 +67,16 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
     const token = (req.headers.cookie || '').split(';').map(v => v.trim()).find(v => v.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
     req.tokenHash = token && /^[a-f0-9]{64}$/.test(token) ? digest(token) : null;
     if (req.tokenHash) {
-      req.auth = (await db.query('SELECT role, member_id FROM sessions WHERE token_hash = $1 AND expires_at > now()', [req.tokenHash])).rows[0];
+      req.auth = (await db.query(`SELECT s.role, s.member_id, (s.role = 'member' AND m.access_code IS NULL) AS needs_access_code
+        FROM sessions s LEFT JOIN members m ON m.id = s.member_id WHERE s.token_hash = $1 AND s.expires_at > now()`, [req.tokenHash])).rows[0];
     }
     next();
   });
-  function requireRole(role) {
+  function requireRole(role, { allowPending = false } = {}) {
     return (req, res, next) => {
       if (!req.auth) throw fail(401, 'Please sign in again.');
       if (req.auth.role !== role) throw fail(403, 'You do not have access to this action.');
+      if (role === 'member' && req.auth.needs_access_code && !allowPending) throw fail(403, 'Enter an access code to activate your account.');
       next();
     };
   }
@@ -103,11 +104,11 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
     let members = [], codes = [];
     if (req.auth?.role === 'admin') {
       members = (await db.query(`SELECT ${memberFields} FROM members ORDER BY scout_id`)).rows;
-      codes = (await db.query('SELECT code, created_at AS "createdAt", used_by AS "usedBy", used_at AS "usedAt" FROM access_codes ORDER BY created_at DESC, code')).rows;
-    } else if (req.auth?.role === 'member') {
+      codes = (await db.query('SELECT code,region_code AS "regionCode",group_code AS "groupCode",role_code AS "roleCode",created_at AS "createdAt", used_by AS "usedBy", used_at AS "usedAt" FROM access_codes ORDER BY created_at DESC, code')).rows;
+    } else if (req.auth?.role === 'member' && !req.auth.needs_access_code) {
       members = (await db.query(`SELECT ${memberFields} FROM members WHERE id = $1`, [req.auth.member_id])).rows;
     }
-    res.json({ members, codes, counts, session: { type: req.auth?.role || null, memberId: req.auth?.member_id || null } });
+    res.json({ members, codes, counts, session: { type: req.auth?.role || null, memberId: req.auth?.member_id || null, needsAccessCode: Boolean(req.auth?.needs_access_code) } });
   });
   app.post('/api/login', rateLimit, async (req, res) => {
     const { password, type } = req.body;
@@ -123,7 +124,6 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
   });
   app.post('/api/register', rateLimit, async (req, res) => {
     const fields = profile(req.body);
-    const name = username(req.body.username);
     const code = String(req.body.accessCode || '').trim().toUpperCase();
     if (!code || code.length > 80) throw fail(409, 'Invalid access code.');
     const passwordHash = await hashPassword(req.body.password);
@@ -131,11 +131,13 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
     let token;
     try {
       await client.query('BEGIN');
-      const existing = (await client.query('SELECT code, used_by FROM access_codes WHERE code = $1 FOR UPDATE', [code])).rows[0];
+      const existing = (await client.query('SELECT code, used_by,region_code,group_code,role_code FROM access_codes WHERE code = $1 FOR UPDATE', [code])).rows[0];
       if (!existing || existing.used_by) throw fail(409, 'Invalid access code.');
+      const name = await resolveUsername(client, null, fields.firstName, fields.lastName);
+      const numbering = existing.group_code === null ? await resolveCard(client) : await resolveCodeCard(client, existing);
       const id = randomUUID();
-      await client.query(`INSERT INTO members (id,first_name,last_name,date_of_birth,blood_type,password_hash,photo_data_url,access_code,father_name,username)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [id, fields.firstName, fields.lastName, fields.date, req.body.bloodType, passwordHash, fields.photo, code, fields.fatherName, name]);
+      await client.query(`INSERT INTO members (id,first_name,last_name,date_of_birth,blood_type,password_hash,photo_data_url,access_code,father_name,username,card_id,region_code,group_code,role_code,card_serial)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [id, fields.firstName, fields.lastName, fields.date, req.body.bloodType, passwordHash, fields.photo, code, fields.fatherName, name, numbering.cardId, numbering.regionCode, numbering.groupCode, numbering.roleCode, numbering.cardSerial]);
       await client.query('UPDATE access_codes SET used_by = $1, used_at = now() WHERE code = $2', [id, code]);
       token = await issueSession(client, req, 'member', id);
       await client.query('COMMIT');
@@ -147,39 +149,85 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
     if (req.tokenHash) await db.query('DELETE FROM sessions WHERE token_hash = $1', [req.tokenHash]);
     res.clearCookie(cookieName, cookieOptions); res.json({ ok: true });
   });
+  app.post('/api/activate', requireRole('member', { allowPending: true }), rateLimit, async (req, res) => {
+    const code = typeof req.body.accessCode === 'string' ? req.body.accessCode.trim().toUpperCase() : '';
+    if (!code || code.length > 80) throw fail(409, 'Invalid access code.');
+    if (!validPassword(req.body.password)) throw fail(400, 'Choose a new password of 12–128 characters.');
+    const hash = await hashPassword(req.body.password);
+    const client = await db.connect();
+    let token;
+    try {
+      await client.query('BEGIN');
+      const existing = (await client.query('SELECT code, used_by,region_code,group_code,role_code FROM access_codes WHERE code=$1 FOR UPDATE', [code])).rows[0];
+      if (!existing || existing.used_by) throw fail(409, 'Invalid access code.');
+      await client.query('SELECT pg_advisory_xact_lock(31002)');
+      const member = (await client.query('SELECT access_code FROM members WHERE id=$1 FOR UPDATE', [req.auth.member_id])).rows[0];
+      if (!member) throw fail(401, 'Please sign in again.');
+      if (member.access_code !== null) throw fail(409, 'Your account is already active.');
+      if (existing.group_code !== null) {
+        const numbering = await resolveCodeCard(client, existing, req.auth.member_id);
+        await client.query(`UPDATE members SET card_id=$1,region_code=$2,group_code=$3,role_code=$4,card_serial=$5 WHERE id=$6`,
+          [numbering.cardId, numbering.regionCode, numbering.groupCode, numbering.roleCode, numbering.cardSerial, req.auth.member_id]);
+      }
+      await client.query('UPDATE members SET access_code=$1,password_hash=$2,revision=revision+1 WHERE id=$3', [code, hash, req.auth.member_id]);
+      await client.query('UPDATE access_codes SET used_by=$1,used_at=now() WHERE code=$2', [req.auth.member_id, code]);
+      await client.query('DELETE FROM sessions WHERE member_id=$1', [req.auth.member_id]);
+      token = await issueSession(client, req, 'member', req.auth.member_id);
+      await client.query('COMMIT');
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
+    finally { client.release(); }
+    setCookie(res, token); res.json({ ok: true });
+  });
   app.post('/api/codes', requireRole('admin'), async (req, res) => {
     const quantity = req.body.quantity;
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) throw fail(400, 'Choose between 1 and 1000 codes.');
+    const numbering = cardPlan({ cardIdMode: 'structured', regionCode: req.body.regionCode, groupCode: req.body.groupCode, roleCode: req.body.roleCode });
     const codes = Array.from({ length: quantity }, () => `SNL-${randomBytes(8).toString('hex').toUpperCase()}`);
-    await db.query('INSERT INTO access_codes (code) SELECT unnest($1::text[])', [codes]);
+    await db.query('INSERT INTO access_codes (code,region_code,group_code,role_code) SELECT unnest($1::text[]),$2,$3,$4', [codes, numbering.regionCode, numbering.groupCode, numbering.roleCode]);
     res.status(201).json({ ok: true });
   });
   app.put('/api/photo', requireRole('member'), async (req, res) => {
-    await db.query('UPDATE members SET photo_data_url = $1 WHERE id = $2', [photo(req.body.photoDataUrl), req.auth.member_id]);
+    await db.query('UPDATE members SET photo_data_url = $1, revision=revision+1 WHERE id = $2', [photo(req.body.photoDataUrl), req.auth.member_id]);
     res.json({ ok: true });
   });
   app.post('/api/admin/members', requireRole('admin'), async (req, res) => {
     const fields = profile(req.body);
-    const name = username(req.body.username);
     const hash = await hashPassword(req.body.password);
     const id = randomUUID();
-    // Admin-created accounts do not consume or expose a reusable signup code.
-    const code = `ADMIN-${randomBytes(16).toString('hex')}`;
-    await db.query(`INSERT INTO members (id,first_name,last_name,father_name,date_of_birth,blood_type,password_hash,access_code,username)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, fields.firstName, fields.lastName, fields.fatherName, fields.date, req.body.bloodType, hash, code, name]);
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(31002)');
+      const name = await resolveUsername(client, null, fields.firstName, fields.lastName);
+      const numbering = await resolveCard(client, req.body);
+      await client.query(`INSERT INTO members (id,first_name,last_name,father_name,date_of_birth,blood_type,password_hash,access_code,username,card_id,region_code,group_code,role_code,card_serial)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,$8,$9,$10,$11,$12,$13)`, [id, fields.firstName, fields.lastName, fields.fatherName, fields.date, req.body.bloodType, hash, name, numbering.cardId, numbering.regionCode, numbering.groupCode, numbering.roleCode, numbering.cardSerial]);
+      if (numbering.cardSerial) await advanceCardSerial(client);
+      await client.query('COMMIT');
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
+    finally { client.release(); }
     res.status(201).json({ ok: true });
   });
   app.put('/api/admin/members/:id', requireRole('admin'), async (req, res) => {
     if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(req.params.id)) throw fail(400, 'Invalid member ID.');
     const fields = profile(req.body, { passwordRequired: false });
-    const name = username(req.body.username);
     const hash = req.body.password ? await hashPassword(req.body.password) : null;
     const client = await db.connect();
     try {
       await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(31002)');
+      const current = (await client.query(`SELECT ${memberFields} FROM members WHERE id=$1 FOR UPDATE`, [req.params.id])).rows[0];
+      if (!current) throw fail(404, 'Member not found.');
+      const numbering = await resolveCard(client, { ...current, ...req.body }, current);
+      const name = current.username || await resolveUsername(client, null, fields.firstName, fields.lastName, req.params.id);
+      if (req.body.scoutId !== undefined) {
+        const current = (await client.query('SELECT scout_id FROM members WHERE id=$1', [req.params.id])).rows[0];
+        if (current && req.body.scoutId !== current.scout_id) throw fail(400, 'Login ID cannot be changed. Edit Card ID instead.');
+      }
       const result = await client.query(`UPDATE members SET first_name=$1,last_name=$2,father_name=$3,date_of_birth=$4,
-        blood_type=$5,username=$6,password_hash=COALESCE($7,password_hash) WHERE id=$8 RETURNING id`,
-      [fields.firstName, fields.lastName, fields.fatherName, fields.date, req.body.bloodType, name, hash, req.params.id]);
+        blood_type=$5,username=$6,password_hash=COALESCE($7,password_hash),card_id=$9,region_code=$10,group_code=$11,role_code=$12,card_serial=$13,revision=revision+1 WHERE id=$8 RETURNING id`,
+      [fields.firstName, fields.lastName, fields.fatherName, fields.date, req.body.bloodType, name, hash, req.params.id, numbering.cardId, numbering.regionCode, numbering.groupCode, numbering.roleCode, numbering.cardSerial]);
+      if (numbering.cardSerial) await advanceCardSerial(client);
       if (!result.rows.length) throw fail(404, 'Member not found.');
       if (hash) await client.query('DELETE FROM sessions WHERE member_id=$1', [req.params.id]);
       await client.query('COMMIT');
@@ -217,18 +265,21 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
     res.json({ ok: true });
   });
   app.get('/api/card/qr', requireRole('member'), async (req, res) => {
-    const member = (await db.query('SELECT scout_id FROM members WHERE id = $1', [req.auth.member_id])).rows[0];
-    res.type('png').send(await QRCode.toBuffer(`Scout National Libanais\nScout ID: ${member.scout_id}`, { width: 220, margin: 2 }));
+    const member = (await db.query('SELECT card_id FROM members WHERE id = $1', [req.auth.member_id])).rows[0];
+    res.type('png').send(await QRCode.toBuffer(`Scout National Libanais\nCard ID: ${member.card_id}`, { width: 220, margin: 2 }));
   });
+  installMemberImport(app, db, { requireAdmin: requireRole('admin'), profile, memberFields });
   app.use('/api', (req, res) => res.status(404).json({ error: 'Unknown API endpoint.' }));
   // Explicit allowlist: never expose .env, source files, or database backups.
   // Netlify serves static files itself; its CommonJS bundle has no import.meta.url.
   const root = serveStatic ? fileURLToPath(new URL('../', import.meta.url)) : undefined;
-  for (const file of serveStatic ? ['index.html', 'portal.html', 'app.js', 'styles.css', 'id-front.jpeg', 'snl-logo.jpeg', 'favicon.ico', 'contact.html', 'site.js', 'site-config.js', 'contact-service.js', 'hero-mountains.jpg'] : []) {
+  for (const file of serveStatic ? ['index.html', 'portal.html', 'app.js', 'card-numbering-config.js', 'styles.css', 'id-front.jpeg', 'snl-logo.jpeg', 'favicon.ico', 'contact.html', 'site.js', 'site-config.js', 'contact-service.js', 'hero-mountains.jpg'] : []) {
     app.get(file === 'index.html' ? ['/', '/index.html'] : file === 'contact.html' ? ['/contact', '/contact/', '/contact.html'] : `/${file}`, (req, res) => res.sendFile(file, { root }));
   }
   app.use((error, req, res, next) => {
     if (error.code === '23505' && error.constraint === 'members_username_unique') return res.status(409).json({ error: 'Choose a different username.' });
+    if (error.code === '23505' && error.constraint === 'members_scout_id_key') return res.status(409).json({ error: 'That Scout ID is already assigned. No changes were saved.' });
+    if (error.code === '23505' && error.constraint === 'members_card_id_key') return res.status(409).json({ error: 'That Card ID is already assigned. No changes were saved.' });
     const status = error.status || 500;
     if (status >= 500) console.error('Request failed:', error.code || error.name);
     res.status(status).json({ error: status >= 500 ? 'The server could not complete this request. Please try again.' : status === 413 ? 'The uploaded file is too large.' : error.message });

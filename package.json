@@ -10,15 +10,18 @@
     "build": "node scripts/build.mjs",
     "dev:netlify": "npm run build && netlify dev",
     "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
     "migrate": "node server/migrate.js",
-    "test": "node --test test/registry.test.js test/db-config.test.js test/netlify.test.js test/member-management.test.js",
+    "test": "node --test test/registry.test.js test/db-config.test.js test/netlify.test.js test/member-management.test.js test/member-import.test.js test/access-code-groups.test.js",
     "test:browser": "node --test test/browser.test.js test/public.test.js",
-    "check": "node --check site.js && node --check site-config.js && node --check contact-service.js && node --check app.js && node --check server/app.js && node --check server/index.js"
+    "check": "node --check site.js && node --check site-config.js && node --check card-numbering-config.js && node --check contact-service.js && node --check app.js && node --check server/app.js && node --check server/member-import.js && node --check server/member-identifiers.js && node --check server/card-numbering.js && node --check server/index.js"
   },
   "dependencies": {
     "dotenv": "^16.6.1",
+    "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "helmet": "^8.1.0",
+    "jszip": "^3.10.2",
     "pg": "^8.16.3",
     "qrcode": "^1.5.4",
     "serverless-http": "4.0.0"
@@ -26,5 +29,10 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.7",
     "@playwright/test": "^1.63.0"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
   }
 }

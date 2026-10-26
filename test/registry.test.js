@@ -30,7 +30,7 @@ test('database-backed registry integration', async (t) => {
   }
   let adminCookie, memberCookie, member, codes;
   await t.test('Supabase API roles have no registry privileges and RLS blocks rows even if SELECT is granted', async () => {
-    const tables = ['members', 'access_codes', 'admin_account', 'sessions', 'rate_limits'];
+    const tables = ['members', 'access_codes', 'admin_account', 'sessions', 'rate_limits', 'member_import_batches', 'card_id_counters'];
     for (const role of ['anon', 'authenticated']) {
       for (const table of tables) {
         const result = await db.query('SELECT has_table_privilege($1, $2, $3) AS allowed', [role, table, 'SELECT,INSERT,UPDATE,DELETE']);

@@ -4,6 +4,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { testDatabase } from './support/database.js';
 import { migrate } from '../server/migrate.js';
 import { createNetlifyHandler } from '../server/netlify-handler.js';
+import ExcelJS from 'exceljs';
 
 test('deployed origin defaults survive local configuration and still reject foreign origins', async () => {
   const db = { query: async () => ({ rows: [{ members: 0, unused: 0 }] }) };
@@ -35,9 +36,9 @@ test('Netlify function routing, secure sessions, registration, QR and origin pro
     const origin = 'https://registry-test.netlify.app';
     const handler = createNetlifyHandler(db, { APP_ORIGIN: origin });
     const call = (path, body, cookie, headers = {}) => handler({
-      path, httpMethod: body ? 'POST' : 'GET', body: body ? JSON.stringify(body) : null,
+      path: path.split('?')[0], httpMethod: body ? 'POST' : 'GET', body: body ? JSON.stringify(body) : null,
       headers: { host: 'registry-test.netlify.app', origin, 'content-type': 'application/json', 'x-nf-client-connection-ip': '203.0.113.5', ...(cookie ? { cookie } : {}), ...headers },
-      queryStringParameters: {}, isBase64Encoded: false,
+      queryStringParameters: Object.fromEntries(new URLSearchParams(path.split('?')[1])), isBase64Encoded: false,
       requestContext: { identity: { sourceIp: '127.0.0.1' } },
     }, {});
     assert.equal((await call('/.netlify/functions/api/healthz')).statusCode, 200);
@@ -52,6 +53,16 @@ test('Netlify function routing, secure sessions, registration, QR and origin pro
     assert.match(setCookie, /Secure/);
     assert.match(setCookie, /HttpOnly/);
     const adminCookie = setCookie.split(';')[0];
+    for (const path of ['/api/admin/members-workbook?template=1', '/api/admin/members-workbook']) {
+      const exported = await call(path, undefined, adminCookie);
+      assert.equal(exported.statusCode, 200);
+      assert.equal(exported.isBase64Encoded, true);
+      const bytes = Buffer.from(exported.body, 'base64');
+      assert.equal(bytes.subarray(0, 2).toString(), 'PK');
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(bytes);
+      assert.equal(workbook.getWorksheet('Members').getCell('C1').text, 'Card ID');
+    }
     assert.equal((await call('/api/codes', { quantity: 1 }, adminCookie)).statusCode, 201);
     const state = JSON.parse((await call('/api/state', undefined, adminCookie)).body);
     const registered = await call('/api/register', { fatherName: 'Parent', firstName: 'Function', lastName: 'Test', dateOfBirth: '2000-01-01', bloodType: 'O+', accessCode: state.codes[0].code, password });

@@ -80,11 +80,6 @@
 
             <form id="memberSignUpPanel" class="auth-panel" autocomplete="off">
               <label>
-                <span>Username</span>
-                <input name="username" required minlength="3" maxlength="30" pattern="[A-Za-z][A-Za-z0-9._\-]{2,29}" autocomplete="username" autocapitalize="none" spellcheck="false">
-                <small>3–30 characters, starting with a letter. Use letters, numbers, dots, underscores or hyphens.</small>
-              </label>
-              <label>
                 <span>Access code</span>
                 <input id="accessCode" name="accessCode" placeholder="EX: SNL-AB12CD" required>
               </label>
@@ -132,6 +127,17 @@
             </form>
 
           </div>
+        </section>
+
+        <section id="activationView" class="panel hidden" aria-labelledby="activationTitle">
+          <h2 id="activationTitle">Activate your account</h2>
+          <p>Your record is ready. Enter the access code supplied by your administrator and choose a new password to open your profile.</p>
+          <form id="activationForm">
+            <label><span>Access code</span><input name="accessCode" required maxlength="80" autocomplete="off"></label>
+            <label><span>New password</span><input name="password" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label>
+            <button class="primary" type="submit">Activate account</button>
+            <p id="activationMessage" class="message" role="status"></p>
+          </form>
         </section>
 
         <section id="memberView" class="hidden">
@@ -187,9 +193,11 @@
               <h2 id="profileName"></h2>
               <div class="profile-grid">
                 <div>
-                  <span>Scout ID</span>
+                  <span>Card ID</span>
                   <strong id="profileScoutId"></strong>
                 </div>
+                <div><span>Login ID</span><strong id="profileLoginId"></strong></div>
+                <div><span>Username</span><strong id="profileUsername"></strong></div>
                 <div>
                   <span>Date of birth</span>
                   <strong id="profileDateOfBirth"></strong>
@@ -240,9 +248,12 @@
             <div class="section-head">
               <div>
                 <h3>Generate access codes</h3>
-                <p class="muted">Codes are single-use. Share one code with each member.</p>
+                <p class="muted">Choose the group, region and role. When a member redeems a code, their Card ID receives the next serial in that sequence. Codes are single-use.</p>
               </div>
               <form id="codeForm" class="inline-form">
+                <label><span>Group</span><select id="codeGroup" required><option value="">Choose group</option></select></label>
+                <label><span>Region</span><select id="codeRegion" required></select></label>
+                <label><span>Role</span><select id="codeRole" required></select></label>
                 <input id="codeQuantity" type="number" min="1" max="1000" value="10" aria-label="Number of codes">
                 <button class="primary" type="submit">Generate</button>
               </form>
@@ -265,17 +276,20 @@
             </div>
             <form id="memberEditor" class="hidden">
               <h3 id="memberEditorTitle">Add member</h3>
+              <p id="memberEditorLoginId" class="muted"></p>
               <div id="memberEditorFields" class="profile-grid"></div>
               <p class="muted">When editing, leave the password blank to keep it. Changing it signs the member out.</p>
               <button class="primary" type="submit">Save member</button>
               <button id="cancelMemberEdit" class="secondary" type="button">Cancel</button>
             </form>
             <p id="memberManageMessage" class="message" role="status"></p>
+            <p class="muted">Card IDs use region + group + role + four-digit serial: 02 + 03 + 1 + 0001 = <b dir="ltr">020310001</b>. Group 027 uses three digits. Serial numbers can be assigned automatically. Login IDs remain unchanged.</p>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Scout ID</th>
+                    <th>Card ID</th>
+                    <th>Login ID</th>
                     <th>Username</th>
                     <th>First name</th>
                     <th>Last name</th>
@@ -291,6 +305,37 @@
                 <tbody id="membersTable"></tbody>
               </table>
             </div>
+          </section>
+
+          <section class="panel" aria-labelledby="importTitle">
+            <h3 id="importTitle">Excel import and bulk editing</h3>
+            <p>Download the Excel template to add records, or export members to edit their details and Card IDs. Card IDs follow your own format and appear on the ID card. Login IDs stay unchanged. Keep Record ID and Revision unchanged for existing members. Missing rows are never deleted.</p>
+            <p class="muted">New records start without an access code. They sign in with their initial password, then enter an unused access code and choose a new password. Leave Initial password blank to generate one. Import up to 200 records per file, using .xlsx files smaller than 500 KB.</p>
+            <div class="code-tools">
+              <button id="downloadExcelTemplate" class="secondary" type="button">Download Excel template (.xlsx)</button>
+              <button id="exportMembersWorkbook" class="secondary" type="button">Export for bulk editing (.xlsx)</button>
+              <button id="bulkEditIds" class="secondary" type="button">Bulk edit Card IDs</button>
+            </div>
+            <form id="importForm">
+              <label><span>Excel workbook (.xlsx)</span><input id="importFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></label>
+              <button class="secondary" type="submit">Preview workbook</button>
+            </form>
+            <form id="bulkIdForm" class="hidden">
+              <p>Set the region, group, role and serial for the members matching your search (up to 200). Choose manual mode only to preserve another format. Login IDs remain unchanged.</p>
+              <div class="table-wrap"><table><thead><tr><th>Member</th><th>Current Card ID</th><th>New Card ID</th></tr></thead><tbody id="bulkIdRows"></tbody></table></div>
+              <button class="secondary" type="submit">Preview ID changes</button>
+              <button id="cancelBulkIds" class="secondary" type="button">Cancel</button>
+            </form>
+            <p id="importMessage" class="message" role="status"></p>
+            <div id="importPreview" class="hidden">
+              <p id="importSummary"></p>
+              <ul id="importErrors" class="message error"></ul>
+              <div class="table-wrap"><table><thead><tr><th>Row</th><th>Action</th><th>Card ID</th><th>Username</th><th>Name</th><th>Father's name</th><th>Date of birth</th><th>Blood type</th></tr></thead><tbody id="importPreviewRows"></tbody></table></div>
+              <button id="confirmImport" class="primary" type="button">Confirm and save</button>
+              <button id="cancelImport" class="secondary" type="button">Cancel preview</button>
+            </div>
+            <button id="downloadImportCredentials" class="secondary hidden" type="button">Download new member credentials (.xlsx)</button>
+            <p id="credentialsNotice" class="muted hidden">Download these initial passwords now and share each member's credentials privately. They cannot be retrieved after leaving or refreshing this page.</p>
           </section>
 
           <section class="panel settings-panel">
@@ -311,6 +356,6 @@
 
     <footer data-site-footer></footer>
     <script type="module" src="/site.js"></script>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>
