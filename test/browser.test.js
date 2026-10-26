@@ -73,6 +73,8 @@ test('browser registration, reload, photo, exports, and sign-in', { timeout: 600
   await page.locator('#signOutButton').click();
   await expect(page.locator('#authView')).toBeVisible();
   await page.locator('[data-auth-panel="memberSignUpPanel"]').click();
+  await expect(page.locator('#memberSignUpPanel input[type="file"]')).toHaveCount(0);
+  await page.locator('#memberSignUpPanel input[name="username"]').fill('browser.scout');
   await page.locator('#accessCode').fill(code);
   await page.locator('#firstName').fill('Browser');
   await page.locator('#lastName').fill('Scout');
@@ -102,7 +104,7 @@ test('browser registration, reload, photo, exports, and sign-in', { timeout: 600
   await page.locator('#signOutButton').click();
   await expect(page.locator('#authView')).toBeVisible();
   await page.locator('[data-auth-panel="memberSignInPanel"]').click();
-  await page.locator('#signInScoutId').fill(scoutId);
+  await page.locator('#signInScoutId').fill('BROWSER.SCOUT');
   await page.locator('#signInPassword').fill(password);
   await page.locator('#memberSignInPanel button').click();
   await expect(page.locator('#memberView')).toBeVisible();
@@ -126,5 +128,19 @@ test('browser registration, reload, photo, exports, and sign-in', { timeout: 600
   assert.equal(exported.members[0].fatherName, 'Parent Scout');
   assert.equal(exported.members[0].password, undefined);
   assert.equal(exported.session, undefined);
+  await page.locator('#addMember').click();
+  for (const [name, value] of Object.entries({ username: 'added.scout', firstName: 'Added', lastName: 'Scout', fatherName: 'Parent', dateOfBirth: '2005-04-17', password })) {
+    await page.locator(`#memberEditor [name="${name}"]`).fill(value);
+  }
+  await page.locator('#memberEditor button[type="submit"]').click();
+  await expect(page.locator('#memberCountAdmin')).toHaveText('2');
+  const addedRow = page.locator('#membersTable tr').filter({ hasText: 'added.scout' });
+  await addedRow.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.locator('#memberEditor [name="firstName"]').fill('Edited');
+  await page.locator('#memberEditor button[type="submit"]').click();
+  await expect(addedRow).toContainText('Edited');
+  page.once('dialog', dialog => dialog.accept());
+  await addedRow.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(page.locator('#memberCountAdmin')).toHaveText('1');
   assert.deepEqual(errors, []);
 });

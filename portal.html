@@ -49,7 +49,7 @@
             <p class="eyebrow">Secure Registry</p>
             <h2>Sign in to view your Scout ID card.</h2>
             <p>
-              Members create an account once with an admin access code. After that, they sign in using their generated ID number and password.
+              Members create an account once with an admin access code. After that, they sign in using their username or generated Scout ID and password.
             </p>
             <div class="mini-stats">
               <div>
@@ -79,6 +79,11 @@
             </form>
 
             <form id="memberSignUpPanel" class="auth-panel" autocomplete="off">
+              <label>
+                <span>Username</span>
+                <input name="username" required minlength="3" maxlength="30" pattern="[A-Za-z][A-Za-z0-9._\-]{2,29}" autocomplete="username" autocapitalize="none" spellcheck="false">
+                <small>3–30 characters, starting with a letter. Use letters, numbers, dots, underscores or hyphens.</small>
+              </label>
               <label>
                 <span>Access code</span>
                 <input id="accessCode" name="accessCode" placeholder="EX: SNL-AB12CD" required>
@@ -252,16 +257,26 @@
           <section class="panel">
             <div class="section-head">
               <div>
-                <h3>Registered members</h3>
+                <h3>Manage members</h3>
                 <p class="muted">Search by name, Scout ID, blood type, date, or access code.</p>
               </div>
               <input id="memberSearch" class="search" placeholder="Search members">
+              <button id="addMember" class="primary" type="button">Add member</button>
             </div>
+            <form id="memberEditor" class="hidden">
+              <h3 id="memberEditorTitle">Add member</h3>
+              <div id="memberEditorFields" class="profile-grid"></div>
+              <p class="muted">When editing, leave the password blank to keep it. Changing it signs the member out.</p>
+              <button class="primary" type="submit">Save member</button>
+              <button id="cancelMemberEdit" class="secondary" type="button">Cancel</button>
+            </form>
+            <p id="memberManageMessage" class="message" role="status"></p>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>Scout ID</th>
+                    <th>Username</th>
                     <th>First name</th>
                     <th>Last name</th>
                     <th>Father's name</th>
@@ -270,6 +285,7 @@
                     <th>Blood type</th>
                     <th>Access code</th>
                     <th>Registered</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="membersTable"></tbody>

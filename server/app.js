@@ -5,10 +5,17 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { digest, hashPassword, verifyPassword, validPassword } from './security.js';
 
-const memberFields = `id, scout_id AS "scoutId", first_name AS "firstName", last_name AS "lastName", father_name AS "fatherName",
+const memberFields = `id, username, scout_id AS "scoutId", first_name AS "firstName", last_name AS "lastName", father_name AS "fatherName",
   to_char(date_of_birth, 'YYYY-MM-DD') AS "dateOfBirth", blood_type AS "bloodType",
   photo_data_url AS "photoDataUrl", access_code AS "accessCode", registered_at AS "registeredAt"`;
 const fail = (status, message) => Object.assign(new Error(message), { status });
+function username(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') throw fail(400, 'Enter a valid username.');
+  const name = value.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9._-]{2,29}$/.test(name) || name === 'admin') throw fail(400, 'Username must start with a letter and contain 3–30 letters, numbers, dots, underscores or hyphens. The name admin is reserved.');
+  return name;
+}
 function photo(value = '') {
   if (typeof value !== 'string' || value.length > 750000 ||
       (value !== '' && !/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/.test(value))) {
@@ -16,7 +23,7 @@ function photo(value = '') {
   }
   return value;
 }
-function profile(body) {
+function profile(body, { passwordRequired = true } = {}) {
   const firstName = String(body.firstName || '').trim().replace(/\s+/g, ' ');
   const lastName = String(body.lastName || '').trim().replace(/\s+/g, ' ');
   const fatherName = typeof body.fatherName === 'string' ? body.fatherName.trim().replace(/\s+/g, ' ') : '';
@@ -26,7 +33,7 @@ function profile(body) {
   const parsed = new Date(`${date}T00:00:00Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date || date < '1900-01-01' || date > new Date().toISOString().slice(0, 10)) throw fail(400, 'Enter a valid date of birth from 1900 through today.');
   if (!['A+','A-','B+','B-','AB+','AB-','O+','O-','Unknown'].includes(body.bloodType)) throw fail(400, 'Choose a valid blood type.');
-  if (!validPassword(body.password)) throw fail(400, 'Use a password of 12–128 characters.');
+  if ((passwordRequired || (body.password !== undefined && body.password !== '')) && !validPassword(body.password)) throw fail(400, 'Use a password of 12–128 characters.');
   return { firstName, lastName, fatherName, date, photo: photo(body.photoDataUrl) };
 }
 
@@ -105,8 +112,9 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
   app.post('/api/login', rateLimit, async (req, res) => {
     const { password, type } = req.body;
     if (typeof password !== 'string' || password.length > 128 || !['member', 'admin'].includes(type)) throw fail(400, 'Invalid sign-in details.');
-    const scoutId = String(req.body.scoutId || '').trim().replace(/\D/g, '').padStart(8, '0');
-    const result = type === 'admin' ? await db.query('SELECT password_hash FROM admin_account WHERE id = 1') : await db.query('SELECT id, password_hash FROM members WHERE scout_id = $1', [scoutId]);
+    const identifier = String(req.body.username || req.body.scoutId || '').trim().toLowerCase();
+    const scoutId = /^\d{1,8}$/.test(identifier) ? identifier.padStart(8, '0') : null;
+    const result = type === 'admin' ? await db.query('SELECT password_hash FROM admin_account WHERE id = 1') : await db.query('SELECT id, password_hash FROM members WHERE scout_id = $1 OR username = $2', [scoutId, identifier]);
     const account = result.rows[0];
     const valid = await verifyPassword(password, account?.password_hash || await dummyHash);
     if (!account || !valid) throw fail(401, 'Incorrect sign-in details.');
@@ -115,18 +123,19 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
   });
   app.post('/api/register', rateLimit, async (req, res) => {
     const fields = profile(req.body);
+    const name = username(req.body.username);
     const code = String(req.body.accessCode || '').trim().toUpperCase();
-    if (code.length > 80) throw fail(400, 'Invalid access code.');
+    if (!code || code.length > 80) throw fail(409, 'Invalid access code.');
     const passwordHash = await hashPassword(req.body.password);
     const client = await db.connect();
     let token;
     try {
       await client.query('BEGIN');
       const existing = (await client.query('SELECT code, used_by FROM access_codes WHERE code = $1 FOR UPDATE', [code])).rows[0];
-      if (!existing || existing.used_by) throw fail(409, 'This access code is invalid or has already been used.');
+      if (!existing || existing.used_by) throw fail(409, 'Invalid access code.');
       const id = randomUUID();
-      await client.query(`INSERT INTO members (id,first_name,last_name,date_of_birth,blood_type,password_hash,photo_data_url,access_code,father_name)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, fields.firstName, fields.lastName, fields.date, req.body.bloodType, passwordHash, fields.photo, code, fields.fatherName]);
+      await client.query(`INSERT INTO members (id,first_name,last_name,date_of_birth,blood_type,password_hash,photo_data_url,access_code,father_name,username)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [id, fields.firstName, fields.lastName, fields.date, req.body.bloodType, passwordHash, fields.photo, code, fields.fatherName, name]);
       await client.query('UPDATE access_codes SET used_by = $1, used_at = now() WHERE code = $2', [id, code]);
       token = await issueSession(client, req, 'member', id);
       await client.query('COMMIT');
@@ -147,6 +156,49 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
   });
   app.put('/api/photo', requireRole('member'), async (req, res) => {
     await db.query('UPDATE members SET photo_data_url = $1 WHERE id = $2', [photo(req.body.photoDataUrl), req.auth.member_id]);
+    res.json({ ok: true });
+  });
+  app.post('/api/admin/members', requireRole('admin'), async (req, res) => {
+    const fields = profile(req.body);
+    const name = username(req.body.username);
+    const hash = await hashPassword(req.body.password);
+    const id = randomUUID();
+    // Admin-created accounts do not consume or expose a reusable signup code.
+    const code = `ADMIN-${randomBytes(16).toString('hex')}`;
+    await db.query(`INSERT INTO members (id,first_name,last_name,father_name,date_of_birth,blood_type,password_hash,access_code,username)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, fields.firstName, fields.lastName, fields.fatherName, fields.date, req.body.bloodType, hash, code, name]);
+    res.status(201).json({ ok: true });
+  });
+  app.put('/api/admin/members/:id', requireRole('admin'), async (req, res) => {
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(req.params.id)) throw fail(400, 'Invalid member ID.');
+    const fields = profile(req.body, { passwordRequired: false });
+    const name = username(req.body.username);
+    const hash = req.body.password ? await hashPassword(req.body.password) : null;
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(`UPDATE members SET first_name=$1,last_name=$2,father_name=$3,date_of_birth=$4,
+        blood_type=$5,username=$6,password_hash=COALESCE($7,password_hash) WHERE id=$8 RETURNING id`,
+      [fields.firstName, fields.lastName, fields.fatherName, fields.date, req.body.bloodType, name, hash, req.params.id]);
+      if (!result.rows.length) throw fail(404, 'Member not found.');
+      if (hash) await client.query('DELETE FROM sessions WHERE member_id=$1', [req.params.id]);
+      await client.query('COMMIT');
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
+    finally { client.release(); }
+    res.json({ ok: true });
+  });
+  app.delete('/api/admin/members/:id', requireRole('admin'), async (req, res) => {
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(req.params.id)) throw fail(400, 'Invalid member ID.');
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      // Delete redeemed codes first so removing a member never makes a code reusable.
+      await client.query('DELETE FROM access_codes WHERE used_by=$1', [req.params.id]);
+      const result = await client.query('DELETE FROM members WHERE id=$1 RETURNING id', [req.params.id]);
+      if (!result.rows.length) throw fail(404, 'Member not found.');
+      await client.query('COMMIT');
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
+    finally { client.release(); }
     res.json({ ok: true });
   });
   app.put('/api/admin/password', requireRole('admin'), rateLimit, async (req, res) => {
@@ -176,6 +228,7 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
     app.get(file === 'index.html' ? ['/', '/index.html'] : file === 'contact.html' ? ['/contact', '/contact/', '/contact.html'] : `/${file}`, (req, res) => res.sendFile(file, { root }));
   }
   app.use((error, req, res, next) => {
+    if (error.code === '23505' && error.constraint === 'members_username_unique') return res.status(409).json({ error: 'Choose a different username.' });
     const status = error.status || 500;
     if (status >= 500) console.error('Request failed:', error.code || error.name);
     res.status(status).json({ error: status >= 500 ? 'The server could not complete this request. Please try again.' : status === 413 ? 'The uploaded file is too large.' : error.message });

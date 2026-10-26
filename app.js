@@ -133,6 +133,49 @@ handle(elements.photoForm, elements.profileMessage, async () => {
   showMessage(elements.profileMessage, 'Profile photo updated.');
 });
 elements.memberSearch.addEventListener('input', renderMembers);
+
+const memberEditor = document.querySelector('#memberEditor');
+const manageMessage = document.querySelector('#memberManageMessage');
+let editingMemberId = null;
+function openMemberEditor(member = null) {
+  editingMemberId = member?.id || null;
+  document.querySelector('#memberEditorTitle').textContent = member ? 'Edit member' : 'Add member';
+  const fields = [
+    ['username', 'Username', 'text'], ['firstName', 'First name', 'text'],
+    ['lastName', 'Last name', 'text'], ['fatherName', "Father’s name", 'text'],
+    ['dateOfBirth', 'Date of birth', 'date'], ['password', member ? 'New password (optional)' : 'Password', 'password'],
+  ];
+  document.querySelector('#memberEditorFields').innerHTML = fields.map(([name, label, type]) =>
+    `<label><span>${label}</span><input name="${name}" type="${type}" ${name === 'password' ? `minlength="12" maxlength="128" autocomplete="new-password" ${member ? '' : 'required'}` : name === 'username' ? 'maxlength="30" autocapitalize="none"' : 'required maxlength="60"'} value="${name === 'password' ? '' : escapeHtml(member?.[name] || '')}"></label>`
+  ).join('') + `<label><span>Blood type</span><select name="bloodType" required>${['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Unknown'].map(type => `<option ${member?.bloodType === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label>`;
+  memberEditor.classList.remove('hidden');
+  memberEditor.querySelector('input').focus();
+}
+document.querySelector('#addMember').addEventListener('click', () => openMemberEditor());
+document.querySelector('#cancelMemberEdit').addEventListener('click', () => { memberEditor.classList.add('hidden'); editingMemberId = null; memberEditor.reset(); });
+handle(memberEditor, manageMessage, async () => {
+  await api(editingMemberId ? `/admin/members/${editingMemberId}` : '/admin/members', editingMemberId ? 'PUT' : 'POST', Object.fromEntries(new FormData(memberEditor)));
+  memberEditor.reset();
+  memberEditor.classList.add('hidden');
+  editingMemberId = null;
+  await refresh();
+  showMessage(manageMessage, 'Member saved.');
+});
+elements.membersTable.addEventListener('click', async event => {
+  const button = event.target.closest('button[data-member-id]');
+  if (!button) return;
+  const member = state.members.find(item => item.id === button.dataset.memberId);
+  if (!member) return;
+  if (button.dataset.action === 'edit') return openMemberEditor(member);
+  if (!window.confirm(`Remove ${member.firstName} ${member.lastName} (${member.scoutId})? This permanently deletes their account and signs them out.`)) return;
+  button.disabled = true;
+  try {
+    await api(`/admin/members/${member.id}`, 'DELETE', {});
+    await refresh();
+    showMessage(manageMessage, 'Member removed.');
+  } catch (error) { showMessage(manageMessage, error.message, true); }
+  finally { button.disabled = false; }
+});
 elements.printCardButton.addEventListener('click', () => window.print());
 elements.exportCsv.addEventListener('click', async () => {
   try {
@@ -176,6 +219,12 @@ function showAuthPanel(panelId) {
 }
 
 function render() {
+  if (session.type !== 'admin') {
+    memberEditor.reset();
+    memberEditor.classList.add('hidden');
+    editingMemberId = null;
+    showMessage(manageMessage, '');
+  }
   elements.authView.classList.toggle("hidden", Boolean(session.type));
   elements.memberView.classList.toggle("hidden", session.type !== "member");
   elements.adminView.classList.toggle("hidden", session.type !== "admin");
@@ -246,7 +295,7 @@ function renderMembers() {
     .sort((a, b) => a.scoutId.localeCompare(b.scoutId));
 
   if (!members.length) {
-    elements.membersTable.innerHTML = '<tr><td colspan="9">No members found.</td></tr>';
+    elements.membersTable.innerHTML = '<tr><td colspan="11">No members found.</td></tr>';
     return;
   }
 
@@ -255,6 +304,7 @@ function renderMembers() {
       (member) => `
         <tr>
           <td>${escapeHtml(member.scoutId)}</td>
+          <td>${escapeHtml(member.username || '-')}</td>
           <td>${escapeHtml(member.firstName)}</td>
           <td>${escapeHtml(member.lastName)}</td>
           <td>${escapeHtml(member.fatherName || "-")}</td>
@@ -263,6 +313,7 @@ function renderMembers() {
           <td>${escapeHtml(member.bloodType)}</td>
           <td>${escapeHtml(member.accessCode)}</td>
           <td>${formatDateTime(member.registeredAt)}</td>
+          <td><button type="button" class="secondary" data-action="edit" data-member-id="${escapeHtml(member.id)}">Edit</button> <button type="button" class="secondary" data-action="remove" data-member-id="${escapeHtml(member.id)}">Remove</button></td>
         </tr>
       `
     )

@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS access_codes (
   used_at timestamptz,
   CHECK ((used_by IS NULL) = (used_at IS NULL))
 );
+ALTER TABLE members ADD COLUMN IF NOT EXISTS username text
+  CHECK (username IS NULL OR (username ~ '^[a-z][a-z0-9._-]{2,29}$' AND username <> 'admin'));
+CREATE UNIQUE INDEX IF NOT EXISTS members_username_unique ON members(username);
 CREATE TABLE IF NOT EXISTS admin_account (
   id integer PRIMARY KEY CHECK (id = 1),
   password_hash text NOT NULL
