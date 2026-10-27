@@ -154,3 +154,6 @@ UPDATE members m SET access_code_expires_at = COALESCE(
 WHERE m.access_code IS NOT NULL AND m.access_code_expires_at IS NULL;
 ALTER TABLE access_codes DROP CONSTRAINT IF EXISTS access_codes_used_by_key;
 CREATE INDEX IF NOT EXISTS access_codes_used_by_idx ON access_codes(used_by);
+
+-- Imported historical records may have an unknown birthdate.
+ALTER TABLE members ALTER COLUMN date_of_birth DROP NOT NULL;

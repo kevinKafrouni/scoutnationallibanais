@@ -214,7 +214,7 @@ function openMemberEditor(member = null) {
     ['dateOfBirth', 'Date of birth', 'date'], ['password', member ? 'New password (optional)' : 'Password', 'password'],
   ];
   document.querySelector('#memberEditorFields').innerHTML = fields.map(([name, label, type]) =>
-    `<label><span>${label}</span><input name="${name}" type="${type}" ${name === 'password' ? `minlength="12" maxlength="128" autocomplete="new-password" ${member ? '' : 'required'}` : name === 'cardId' ? `maxlength="60" ${member ? 'required' : ''}` : name === 'username' ? 'maxlength="30" autocapitalize="none"' : 'required maxlength="60"'} value="${name === 'password' ? '' : escapeHtml(member?.[name] || '')}"></label>`
+    `<label><span>${label}</span><input name="${name}" type="${type}" ${name === 'password' ? `minlength="12" maxlength="128" autocomplete="new-password" ${member ? '' : 'required'}` : name === 'cardId' ? `maxlength="60" ${member ? 'required' : ''}` : name === 'username' ? 'maxlength="30" autocapitalize="none"' : ['fatherName', 'dateOfBirth'].includes(name) ? 'maxlength="60"' : 'required maxlength="60"'} value="${name === 'password' ? '' : escapeHtml(member?.[name] || '')}"></label>`
   ).join('') + `<label><span>Blood type</span><select name="bloodType" required>${['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Unknown'].map(type => `<option ${member?.bloodType === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label>` + numberingFields(member);
   memberEditor.classList.remove('hidden');
   setupNumberingEditor(memberEditor);
@@ -338,7 +338,7 @@ function renderImportPreview(preview) {
   importRequestId = preview.requestId;
   document.querySelector('#importSummary').textContent = `${preview.summary.added} new records, ${preview.summary.updated} records to update. ${preview.errors.length ? 'Fix the errors and preview again.' : 'Review the rows, then confirm to save all changes.'}`;
   document.querySelector('#importErrors').innerHTML = preview.errors.map(error => `<li>Row ${error.row}: ${escapeHtml(error.message)}</li>`).join('');
-  document.querySelector('#importPreviewRows').innerHTML = preview.rows.map(row => `<tr><td>${row.sourceRow}</td><td>${row.id ? 'Update' : 'Add'}</td><td>${escapeHtml(row.cardId || 'Automatic')}</td><td>${escapeHtml(row.username || '-')}</td><td>${escapeHtml(`${row.firstName} ${row.lastName}`)}</td><td>${escapeHtml(row.fatherName || '-')}</td><td>${escapeHtml(row.dateOfBirth)}</td><td>${escapeHtml(row.bloodType)}</td></tr>`).join('');
+  document.querySelector('#importPreviewRows').innerHTML = preview.rows.map(row => `<tr><td>${row.sourceRow}</td><td>${row.id ? 'Update' : 'Add'}</td><td>${escapeHtml(row.cardId || 'Automatic')}</td><td>${escapeHtml(row.username || '-')}</td><td>${escapeHtml(`${row.firstName} ${row.lastName}`)}</td><td>${escapeHtml(row.fatherName || '-')}</td><td>${escapeHtml(row.dateOfBirth || '-')}</td><td>${escapeHtml(row.bloodType)}</td></tr>`).join('');
   document.querySelector('#confirmImport').disabled = !importRows;
   document.querySelector('#importPreview').classList.remove('hidden');
 }
@@ -449,7 +449,7 @@ function renderMemberProfile(member) {
   elements.profileScoutId.textContent = member.cardId;
   document.querySelector('#profileLoginId').textContent = member.scoutId;
   document.querySelector('#profileUsername').textContent = member.username;
-  elements.profileDateOfBirth.textContent = member.dateOfBirth;
+  elements.profileDateOfBirth.textContent = member.dateOfBirth || '-';
   elements.profileAge.textContent = calculateAge(member.dateOfBirth);
   elements.profileBloodType.textContent = member.bloodType;
   elements.cardInitials.textContent = `${member.firstName[0] || ""}${member.lastName[0] || ""}`.toUpperCase();
@@ -460,7 +460,7 @@ function renderMemberProfile(member) {
   elements.cardFirstName.textContent = member.firstName;
   elements.cardLastName.textContent = member.lastName;
   elements.cardFatherName.textContent = member.fatherName || "-";
-  elements.cardDateOfBirth.textContent = member.dateOfBirth;
+  elements.cardDateOfBirth.textContent = member.dateOfBirth || '-';
   elements.cardBloodType.textContent = member.bloodType;
   elements.cardQr.src = createQrUrl(member);
 }
@@ -503,7 +503,7 @@ function renderMembers() {
           <td>${escapeHtml(member.firstName)}</td>
           <td>${escapeHtml(member.lastName)}</td>
           <td>${escapeHtml(member.fatherName || "-")}</td>
-          <td>${escapeHtml(member.dateOfBirth)}</td>
+          <td>${escapeHtml(member.dateOfBirth || '-')}</td>
           <td>${calculateAge(member.dateOfBirth)}</td>
           <td>${escapeHtml(member.bloodType)}</td>
           <td>${member.accessCode ? escapeHtml(member.accessCode) : 'Awaiting activation'}</td>
@@ -549,6 +549,7 @@ function showMessage(element, text, isError = false) {
 }
 
 function calculateAge(dateString) {
+  if (!dateString) return '';
   const birth = new Date(dateString);
   const today = new Date();
   let age = today.getFullYear() - birth.getFullYear();

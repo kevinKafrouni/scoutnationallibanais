@@ -33,7 +33,7 @@ export async function memberWorkbook(members = []) {
   const notes = workbook.addWorksheet('Instructions');
   for (const line of [
     'Use the Members sheet. Import at most 200 records per file. Only .xlsx files are supported.',
-    'New records: leave Record ID and Revision blank. First name, Last name, Father\'s name, Date of birth and Blood type are required.',
+    'New records: leave Record ID and Revision blank. First name and Last name are required. Father name and birthdate may be blank; blank blood type means Unknown.',
     'Card ID: generated from the code columns in structured mode. In manual mode, enter up to 60 characters in your own format. Leading zeros are preserved.',
     'Numbering: region + group + role + four-digit serial. Example: 02 + 03 + 1 + 0001 = 020310001. Group 027 uses three digits: 02 + 027 + 2 + 0001 = 0202720001.',
     'Card ID mode: structured (generate from the code columns) or manual (keep the Card ID column). Existing exports preserve their mode. New rows default to structured unless a manual Card ID is supplied.',
@@ -127,11 +127,11 @@ export function installMemberImport(app, db, { requireAdmin, profile, memberFiel
         const numbering = cardPlan(row, original);
         if (id && row.password) throw fail(400, 'Leave Initial password blank for existing records; use Edit member to reset it.');
         const preserveMissingFather = Boolean(original && !original.fatherName && !row.fatherName);
-        const fields = profile({ ...row, photoDataUrl: undefined, fatherName: preserveMissingFather ? 'Legacy' : row.fatherName }, { passwordRequired: false });
+        const fields = profile({ ...row, bloodType: row.bloodType || 'Unknown', photoDataUrl: undefined, fatherName: row.fatherName }, { passwordRequired: false, allowIncomplete: true });
         rows.push({ id: id || null, revision, scoutId: original?.scoutId || null, ...numbering,
           autoSerial: numbering.cardIdMode === 'structured' && (!numbering.cardSerial || row.autoSerial === true), username: original?.username || null,
           firstName: fields.firstName, lastName: fields.lastName, fatherName: preserveMissingFather ? null : fields.fatherName, dateOfBirth: fields.date,
-          bloodType: row.bloodType, password: row.password || '', sourceRow });
+          bloodType: row.bloodType || 'Unknown', password: row.password || '', sourceRow });
       } catch (error) { errors.push({ row: sourceRow, message: error.message }); }
     });
     const allocationRows = rows.filter(row => row.autoSerial);

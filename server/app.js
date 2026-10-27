@@ -22,18 +22,18 @@ function photo(value = '') {
   }
   return value;
 }
-function profile(body, { passwordRequired = true } = {}) {
+function profile(body, { passwordRequired = true, allowIncomplete = false } = {}) {
   const firstName = String(body.firstName || '').trim().replace(/\s+/g, ' ');
   const lastName = String(body.lastName || '').trim().replace(/\s+/g, ' ');
   const fatherName = typeof body.fatherName === 'string' ? body.fatherName.trim().replace(/\s+/g, ' ') : '';
-  if (!fatherName || fatherName.length > 60) throw fail(400, "Enter a father's name, up to 60 characters.");
-  const date = body.dateOfBirth;
+  if ((!fatherName && !allowIncomplete) || fatherName.length > 60 || (body.fatherName != null && typeof body.fatherName !== 'string')) throw fail(400, "Enter a father's name, up to 60 characters.");
+  const date = body.dateOfBirth || null;
   if (!firstName || !lastName || firstName.length > 60 || lastName.length > 60) throw fail(400, 'Enter a first and last name, up to 60 characters each.');
   const parsed = new Date(`${date}T00:00:00Z`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date || date < '1900-01-01' || date > new Date().toISOString().slice(0, 10)) throw fail(400, 'Enter a valid date of birth from 1900 through today.');
+  if (!(allowIncomplete && date === null) && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date || date < '1900-01-01' || date > new Date().toISOString().slice(0, 10))) throw fail(400, 'Enter a valid date of birth from 1900 through today.');
   if (!['A+','A-','B+','B-','AB+','AB-','O+','O-','Unknown'].includes(body.bloodType)) throw fail(400, 'Choose a valid blood type.');
   if ((passwordRequired || (body.password !== undefined && body.password !== '')) && !validPassword(body.password)) throw fail(400, 'Use a password of 12–128 characters.');
-  return { firstName, lastName, fatherName, date, photo: photo(body.photoDataUrl) };
+  return { firstName, lastName, fatherName: fatherName || null, date, photo: photo(body.photoDataUrl) };
 }
 
 export function createApp(db, { production = false, origin = 'http://localhost:3000', trustProxy = 0, serveStatic = true } = {}) {
@@ -115,7 +115,7 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
     if (typeof password !== 'string' || password.length > 128 || !['member', 'admin'].includes(type)) throw fail(400, 'Invalid sign-in details.');
     const identifier = String(req.body.username || req.body.scoutId || '').trim().toLowerCase();
     const scoutId = /^\d{1,8}$/.test(identifier) ? identifier.padStart(8, '0') : null;
-    const result = type === 'admin' ? await db.query('SELECT password_hash FROM admin_account WHERE id = 1') : await db.query('SELECT id, password_hash, access_code FROM members WHERE scout_id = $1 OR username = $2', [scoutId, identifier]);
+    const result = type === 'admin' ? await db.query('SELECT password_hash FROM admin_account WHERE id = 1') : await db.query('SELECT id, password_hash, access_code FROM members WHERE scout_id = $1 OR username = $2 OR card_id = $3 ORDER BY (scout_id = $1) DESC NULLS LAST LIMIT 1', [scoutId, identifier, String(req.body.username || req.body.scoutId || '').trim()]);
     const account = result.rows[0];
     const valid = await verifyPassword(password, account?.password_hash || await dummyHash);
     const firstSetup = type === 'member' && account?.password_hash === '' && account.access_code === null && password === '';
@@ -163,10 +163,11 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
       const existing = (await client.query('SELECT code, used_by,region_code,group_code,role_code FROM access_codes WHERE code=$1 FOR UPDATE', [code])).rows[0];
       if (!existing || existing.used_by) throw fail(409, 'Invalid access code.');
       await client.query('SELECT pg_advisory_xact_lock(31002)');
-      const member = (await client.query('SELECT access_code, (access_code_expires_at > now()) AS active FROM members WHERE id=$1 FOR UPDATE', [req.auth.member_id])).rows[0];
+      const member = (await client.query('SELECT access_code, region_code, group_code, role_code, (access_code_expires_at > now()) AS active FROM members WHERE id=$1 FOR UPDATE', [req.auth.member_id])).rows[0];
       if (!member) throw fail(401, 'Please sign in again.');
       if (member.access_code !== null && member.active) throw fail(409, 'Your account is already active.');
-      if (member.access_code === null && existing.group_code !== null) {
+      if (member.access_code === null && existing.group_code !== null &&
+          !(member.region_code === existing.region_code && member.group_code === existing.group_code && member.role_code === existing.role_code)) {
         const numbering = await resolveCodeCard(client, existing, req.auth.member_id);
         await client.query(`UPDATE members SET card_id=$1,region_code=$2,group_code=$3,role_code=$4,card_serial=$5 WHERE id=$6`,
           [numbering.cardId, numbering.regionCode, numbering.groupCode, numbering.roleCode, numbering.cardSerial, req.auth.member_id]);
@@ -220,7 +221,7 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
   });
   app.put('/api/admin/members/:id', requireRole('admin'), async (req, res) => {
     if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(req.params.id)) throw fail(400, 'Invalid member ID.');
-    const fields = profile(req.body, { passwordRequired: false });
+    const fields = profile(req.body, { passwordRequired: false, allowIncomplete: true });
     const hash = req.body.password ? await hashPassword(req.body.password) : null;
     const client = await db.connect();
     try {

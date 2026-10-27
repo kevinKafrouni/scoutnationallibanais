@@ -157,3 +157,5 @@ Contact submission is intentionally not connected yet. `contact-service.js` expo
 Administrators can delete individual generated codes, all unused codes, or all generated codes. Cleanup does not change member activation or expiration; deleted unused codes cannot be redeemed. Run `npm run migrate` before deploying these changes.
 
 Group districts are assigned automatically for structured Card IDs and generated codes: NDA (024), NDMC (025), and NDAK (027) use 02; NDP (026) uses 01. Other groups retain the selected region. Existing stored IDs are preserved until explicitly edited.
+
+Historical imports may leave father name and date of birth blank; missing blood types use Unknown. New self-registrations still require full profile details. Members can sign in with their exact Card ID, generated Login ID, or username. Redeeming a code with the same district/group/role preserves an existing structured Card ID.

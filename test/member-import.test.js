@@ -205,4 +205,27 @@ test('Excel imports, gated activation, and atomic bulk edits', async t => {
     assert.equal(collision.status, 400);
     assert.match(collision.data.error, /allocated after preview/);
   });
+  await t.test('incomplete historical members sign in with their existing Card ID and keep it at activation', async () => {
+    const preview = (await previewRows([{ firstName: 'Historical', lastName: 'Member', regionCode: '02', groupCode: '027', roleCode: '2', cardSerial: '0109' }])).data;
+    assert.deepEqual(preview.errors, []);
+    assert.equal(preview.rows[0].dateOfBirth, null);
+    assert.equal(preview.rows[0].fatherName, null);
+    assert.equal(preview.rows[0].bloodType, 'Unknown');
+    assert.equal((await save(preview)).status, 200);
+    const member = (await state()).members.find(row => row.cardId === '0202720109');
+    const login = await request('/login', 'POST', { type: 'member', scoutId: member.cardId, password: '' });
+    assert.equal(login.status, 200);
+    assert.equal((await request('/card/qr', 'GET', undefined, login.cookie)).status, 403);
+    assert.equal((await request('/codes', 'POST', { quantity: 1, regionCode: '02', groupCode: '027', roleCode: '2' }, admin)).status, 201);
+    const code = (await state()).codes.find(row => row.groupCode === '027' && !row.usedBy);
+    const activated = await request('/activate', 'POST', { accessCode: code.code, password: 'historical-long-password' }, login.cookie);
+    assert.equal(activated.status, 200);
+    const own = (await request('/state', 'GET', undefined, activated.cookie)).data.members[0];
+    assert.equal(own.cardId, member.cardId);
+    assert.equal(own.dateOfBirth, null);
+    assert.equal((await request(`/admin/members/${member.id}`, 'PUT', { ...own, password: '' }, admin)).status, 200);
+    await migrate(db, password);
+    assert.equal((await state()).members.find(row => row.id === member.id).dateOfBirth, null);
+  });
+
 });
