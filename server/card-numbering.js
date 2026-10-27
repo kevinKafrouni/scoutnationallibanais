@@ -1,5 +1,5 @@
 import { cardId } from './member-identifiers.js';
-import { formatCardParts } from '../card-numbering-config.js';
+import { formatCardParts, districtForGroup } from '../card-numbering-config.js';
 
 const fail = message => Object.assign(new Error(message), { status: 400 });
 const pick = (value, fallback) => value === undefined || value === null || value === '' ? fallback : value;
@@ -22,7 +22,7 @@ export function cardPlan(body = {}, current = null) {
   const role = code(pick(body.roleCode, current?.roleCode), '2', 'role (1 or 2)', value => value === 1 || value === 2);
   const serialValue = pick(body.cardSerial, current?.cardSerial);
   const serial = serialValue !== undefined && serialValue !== null ? code(serialValue, null, 'serial (0001–9999)', value => value >= 1 && value <= 9999) : null;
-  const plan = { cardIdMode: mode, regionCode: String(region).padStart(2, '0'), groupCode: String(group).padStart(group < 20 ? 2 : 3, '0'), roleCode: String(role), cardSerial: serial === null ? null : String(serial).padStart(4, '0') };
+  const plan = { cardIdMode: mode, regionCode: districtForGroup(group) || String(region).padStart(2, '0'), groupCode: String(group).padStart(group < 20 ? 2 : 3, '0'), roleCode: String(role), cardSerial: serial === null ? null : String(serial).padStart(4, '0') };
   return { ...plan, cardId: plan.cardSerial ? formatCardParts(plan) : null };
 }
 

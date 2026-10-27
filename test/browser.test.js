@@ -240,5 +240,24 @@ test('browser registration, reload, photo, exports, and sign-in', { timeout: 600
   await page.locator('#signInPassword').fill('chosen-new-password');
   await page.locator('#memberSignInPanel button').click();
   await expect(page.locator('#memberView')).toBeVisible();
+  // An imported member with no password can begin setup using the Login ID.
+  await page.locator('#signOutButton').click();
+  await page.locator('#signInScoutId').fill(credentialSheet.getCell('A3').text);
+  await page.locator('#signInPassword').fill('');
+  await page.locator('#memberSignInPanel button').click();
+  await expect(page.locator('#activationView')).toBeVisible();
+  await db.query("INSERT INTO access_codes (code) VALUES ('BROWSER-FIRST-SETUP'), ('BROWSER-RENEWAL')");
+  await page.locator('#activationForm [name="accessCode"]').fill('BROWSER-FIRST-SETUP');
+  await page.locator('#activationForm [name="password"]').fill('browser-setup-password');
+  await page.locator('#activationForm button').click();
+  await expect(page.locator('#memberView')).toBeVisible();
+  await db.query("UPDATE members SET access_code_expires_at=now() - interval '1 second' WHERE scout_id=$1", [credentialSheet.getCell('A3').text]);
+  await page.reload();
+  await expect(page.locator('#activationView')).toBeVisible();
+  await expect(page.locator('#memberView')).toBeHidden();
+  await page.locator('#activationForm [name="accessCode"]').fill('BROWSER-RENEWAL');
+  await page.locator('#activationForm [name="password"]').fill('browser-setup-password');
+  await page.locator('#activationForm button').click();
+  await expect(page.locator('#memberView')).toBeVisible();
   assert.deepEqual(errors, []);
 });

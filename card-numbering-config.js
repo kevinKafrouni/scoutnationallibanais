@@ -1,3 +1,6 @@
+export const groupDistricts = { '024': '02', '025': '02', '026': '01', '027': '02' };
+export const districtForGroup = groupCode => groupDistricts[String(Number(groupCode)).padStart(Number(groupCode) < 20 ? 2 : 3, '0')];
+
 export const cardCatalog = {
   regions: [['00', '** / Unspecified'], ['01', 'بيروت / Beirut'], ['02', 'جبل لبنان / Mount Lebanon'], ['03', 'الشمال / North'], ['04', 'الجنوب / South'], ['05', 'البقاع / Bekaa']],
   roles: [['1', 'سلك القيادة / Leadership'], ['2', 'أفراد / Member']],

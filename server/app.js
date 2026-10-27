@@ -67,7 +67,7 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
     const token = (req.headers.cookie || '').split(';').map(v => v.trim()).find(v => v.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
     req.tokenHash = token && /^[a-f0-9]{64}$/.test(token) ? digest(token) : null;
     if (req.tokenHash) {
-      req.auth = (await db.query(`SELECT s.role, s.member_id, (s.role = 'member' AND m.access_code IS NULL) AS needs_access_code
+      req.auth = (await db.query(`SELECT s.role, s.member_id, (s.role = 'member' AND (m.access_code IS NULL OR m.access_code_expires_at IS NULL OR m.access_code_expires_at <= now())) AS needs_access_code
         FROM sessions s LEFT JOIN members m ON m.id = s.member_id WHERE s.token_hash = $1 AND s.expires_at > now()`, [req.tokenHash])).rows[0];
     }
     next();
@@ -115,10 +115,11 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
     if (typeof password !== 'string' || password.length > 128 || !['member', 'admin'].includes(type)) throw fail(400, 'Invalid sign-in details.');
     const identifier = String(req.body.username || req.body.scoutId || '').trim().toLowerCase();
     const scoutId = /^\d{1,8}$/.test(identifier) ? identifier.padStart(8, '0') : null;
-    const result = type === 'admin' ? await db.query('SELECT password_hash FROM admin_account WHERE id = 1') : await db.query('SELECT id, password_hash FROM members WHERE scout_id = $1 OR username = $2', [scoutId, identifier]);
+    const result = type === 'admin' ? await db.query('SELECT password_hash FROM admin_account WHERE id = 1') : await db.query('SELECT id, password_hash, access_code FROM members WHERE scout_id = $1 OR username = $2', [scoutId, identifier]);
     const account = result.rows[0];
     const valid = await verifyPassword(password, account?.password_hash || await dummyHash);
-    if (!account || !valid) throw fail(401, 'Incorrect sign-in details.');
+    const firstSetup = type === 'member' && account?.password_hash === '' && account.access_code === null && password === '';
+    if (!account || (!valid && !firstSetup)) throw fail(401, 'Incorrect sign-in details.');
     const token = await issueSession(db, req, type, account.id || null);
     setCookie(res, token); res.json({ ok: true });
   });
@@ -138,6 +139,7 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
       const id = randomUUID();
       await client.query(`INSERT INTO members (id,first_name,last_name,date_of_birth,blood_type,password_hash,photo_data_url,access_code,father_name,username,card_id,region_code,group_code,role_code,card_serial)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [id, fields.firstName, fields.lastName, fields.date, req.body.bloodType, passwordHash, fields.photo, code, fields.fatherName, name, numbering.cardId, numbering.regionCode, numbering.groupCode, numbering.roleCode, numbering.cardSerial]);
+      await client.query("UPDATE members SET access_code_expires_at=now() + interval '1 year' WHERE id=$1", [id]);
       await client.query('UPDATE access_codes SET used_by = $1, used_at = now() WHERE code = $2', [id, code]);
       token = await issueSession(client, req, 'member', id);
       await client.query('COMMIT');
@@ -161,15 +163,15 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
       const existing = (await client.query('SELECT code, used_by,region_code,group_code,role_code FROM access_codes WHERE code=$1 FOR UPDATE', [code])).rows[0];
       if (!existing || existing.used_by) throw fail(409, 'Invalid access code.');
       await client.query('SELECT pg_advisory_xact_lock(31002)');
-      const member = (await client.query('SELECT access_code FROM members WHERE id=$1 FOR UPDATE', [req.auth.member_id])).rows[0];
+      const member = (await client.query('SELECT access_code, (access_code_expires_at > now()) AS active FROM members WHERE id=$1 FOR UPDATE', [req.auth.member_id])).rows[0];
       if (!member) throw fail(401, 'Please sign in again.');
-      if (member.access_code !== null) throw fail(409, 'Your account is already active.');
-      if (existing.group_code !== null) {
+      if (member.access_code !== null && member.active) throw fail(409, 'Your account is already active.');
+      if (member.access_code === null && existing.group_code !== null) {
         const numbering = await resolveCodeCard(client, existing, req.auth.member_id);
         await client.query(`UPDATE members SET card_id=$1,region_code=$2,group_code=$3,role_code=$4,card_serial=$5 WHERE id=$6`,
           [numbering.cardId, numbering.regionCode, numbering.groupCode, numbering.roleCode, numbering.cardSerial, req.auth.member_id]);
       }
-      await client.query('UPDATE members SET access_code=$1,password_hash=$2,revision=revision+1 WHERE id=$3', [code, hash, req.auth.member_id]);
+      await client.query("UPDATE members SET access_code=$1,password_hash=$2,access_code_expires_at=now() + interval '1 year',revision=revision+1 WHERE id=$3", [code, hash, req.auth.member_id]);
       await client.query('UPDATE access_codes SET used_by=$1,used_at=now() WHERE code=$2', [req.auth.member_id, code]);
       await client.query('DELETE FROM sessions WHERE member_id=$1', [req.auth.member_id]);
       token = await issueSession(client, req, 'member', req.auth.member_id);
@@ -185,6 +187,14 @@ export function createApp(db, { production = false, origin = 'http://localhost:3
     const codes = Array.from({ length: quantity }, () => `SNL-${randomBytes(8).toString('hex').toUpperCase()}`);
     await db.query('INSERT INTO access_codes (code,region_code,group_code,role_code) SELECT unnest($1::text[]),$2,$3,$4', [codes, numbering.regionCode, numbering.groupCode, numbering.roleCode]);
     res.status(201).json({ ok: true });
+  });
+  app.delete('/api/codes', requireRole('admin'), async (req, res) => {
+    const { scope, code } = req.body;
+    if (!['all', 'unused', 'single'].includes(scope) || (scope === 'single' && typeof code !== 'string')) throw fail(400, 'Choose which codes to delete.');
+    const result = scope === 'all' ? await db.query('DELETE FROM access_codes')
+      : scope === 'unused' ? await db.query('DELETE FROM access_codes WHERE used_by IS NULL')
+      : await db.query('DELETE FROM access_codes WHERE code=$1', [code]);
+    res.json({ ok: true, deleted: result.rowCount });
   });
   app.put('/api/photo', requireRole('member'), async (req, res) => {
     await db.query('UPDATE members SET photo_data_url = $1, revision=revision+1 WHERE id = $2', [photo(req.body.photoDataUrl), req.auth.member_id]);

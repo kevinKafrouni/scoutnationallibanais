@@ -71,8 +71,8 @@
                 <input id="signInScoutId" placeholder="Enter your Scout ID or username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
               </label>
               <label>
-                <span>Password</span>
-                <input id="signInPassword" type="password" autocomplete="current-password" required>
+                <span>Password (leave blank for first setup if none was supplied)</span>
+                <input id="signInPassword" type="password" autocomplete="current-password">
               </label>
               <button class="primary" type="submit">Sign in</button>
               <p id="signInMessage" class="message" role="status"></p>
@@ -130,12 +130,12 @@
         </section>
 
         <section id="activationView" class="panel hidden" aria-labelledby="activationTitle">
-          <h2 id="activationTitle">Activate your account</h2>
-          <p>Your record is ready. Enter the access code supplied by your administrator and choose a new password to open your profile.</p>
+          <h2 id="activationTitle">Activate or renew your account</h2>
+          <p>Enter the access code supplied by your administrator and choose a password to open your profile. Access lasts one year from redemption; after that, sign in with your password to enter a new code.</p>
           <form id="activationForm">
             <label><span>Access code</span><input name="accessCode" required maxlength="80" autocomplete="off"></label>
             <label><span>New password</span><input name="password" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label>
-            <button class="primary" type="submit">Activate account</button>
+            <button class="primary" type="submit">Activate / renew account</button>
             <p id="activationMessage" class="message" role="status"></p>
           </form>
         </section>
@@ -262,6 +262,9 @@
               <button id="copyUnusedCodes" class="secondary" type="button">Copy unused codes</button>
               <button id="downloadUnusedCodes" class="secondary" type="button">Download unused codes</button>
             </div>
+            <button id="deleteUnusedCodes" class="secondary" type="button">Delete unused codes</button>
+            <button id="deleteAllCodes" class="secondary" type="button">Delete all generated codes</button>
+            <p class="muted">Deleting codes does not cancel an activated membership. Deleted unused codes can no longer be redeemed.</p>
             <div id="codeList" class="code-list" aria-live="polite"></div>
           </section>
 
@@ -310,7 +313,7 @@
           <section class="panel" aria-labelledby="importTitle">
             <h3 id="importTitle">Excel import and bulk editing</h3>
             <p>Download the Excel template to add records, or export members to edit their details and Card IDs. Card IDs follow your own format and appear on the ID card. Login IDs stay unchanged. Keep Record ID and Revision unchanged for existing members. Missing rows are never deleted.</p>
-            <p class="muted">New records start without an access code. They sign in with their initial password, then enter an unused access code and choose a new password. Leave Initial password blank to generate one. Import up to 200 records per file, using .xlsx files smaller than 500 KB.</p>
+            <p class="muted">New records start without an access code. They sign in with their initial password, then enter an unused access code and choose a new password. If Initial password is blank, they sign in with their Login ID and leave the password blank to begin setup. Import up to 200 records per file, using .xlsx files smaller than 500 KB.</p>
             <div class="code-tools">
               <button id="downloadExcelTemplate" class="secondary" type="button">Download Excel template (.xlsx)</button>
               <button id="exportMembersWorkbook" class="secondary" type="button">Export for bulk editing (.xlsx)</button>

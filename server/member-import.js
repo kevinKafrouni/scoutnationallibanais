@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { hashPassword } from './security.js';
 import { defaultUsername, availableUsername } from './member-identifiers.js';
 import { cardPlan, advanceCardSerial } from './card-numbering.js';
@@ -42,8 +42,8 @@ export async function memberWorkbook(members = []) {
     'Username: automatic and read-only. Generated as firstname-lastname with -2, -3, etc. for duplicates. Any supplied username is ignored. Existing usernames are preserved.',
     'Login ID: generated automatically and read-only. Leave blank for new records. Edit Card ID to change the ID printed on the card.',
     'Date of birth: YYYY-MM-DD text or an Excel date. Blood type: A+, A-, B+, B-, AB+, AB-, O+, O- or Unknown.',
-    'Initial password: optional for NEW records, 12–128 characters. Blank means generate an individual temporary password.',
-    'After first login, new records must redeem an unused access code and choose a new password before opening their profile.',
+    'Initial password: optional for NEW records, 12–128 characters. Blank means sign in with the Login ID and no password to begin setup.',
+    'For imports without a password, leave the sign-in password blank. After first login, new records must redeem an unused access code and choose a new password before opening their profile.',
     'Bulk editing: export members, keep Record ID, Revision and Login ID unchanged, edit details or Card ID, then preview and confirm.',
     'For existing records, leave Initial password blank. Use Edit member to reset passwords. Missing rows are never deleted.',
     'All rows save together, or none do. Duplicate IDs, usernames and stale revisions are rejected.',
@@ -217,8 +217,8 @@ export function installMemberImport(app, db, { requireAdmin, profile, memberFiel
     await Promise.all(Array.from({ length: Math.min(4, newRows.length) }, async () => {
       while (next < newRows.length) {
         const row = newRows[next++];
-        row.initialPassword = row.password || randomBytes(18).toString('base64url');
-        row.hash = await hashPassword(row.initialPassword);
+        row.initialPassword = row.password || '';
+        row.hash = row.initialPassword ? await hashPassword(row.initialPassword) : '';
       }
     }));
     const client = await db.connect();

@@ -46,6 +46,12 @@ test('access codes assign the next Card ID in their region, group and role seque
     assert.equal(codes[0].roleCode, '2');
     assert.equal((await db.query('SELECT count(*)::integer AS n FROM card_id_counters')).rows[0].n, 0);
   });
+  await t.test('known groups use their assigned districts', async () => {
+    for (const [groupCode, district] of [['024', '02'], ['025', '02'], ['027', '02'], ['026', '01']]) {
+      const [code] = await generate({ ...nda, groupCode, regionCode: '05' });
+      assert.equal(code.regionCode, district);
+    }
+  });
   await t.test('concurrent code redemption continues existing IDs and ignores member-supplied classification', async () => {
     const registrations = await Promise.all([register(codes[0].code, 'First'), register(codes[1].code, 'Second')]);
     assert.deepEqual(registrations.map(result => result.status), [201, 201]);
@@ -76,7 +82,7 @@ test('access codes assign the next Card ID in their region, group and role seque
   });
   await t.test('groups, regions and roles have independent sequences without granting admin privileges', async () => {
     for (const [fields, expected] of [
-      [{ ...nda, groupCode: '025' }, '0202520001'], [{ ...nda, regionCode: '01' }, '0102420001'], [{ ...nda, roleCode: '1' }, '0202410001'],
+      [{ ...nda, groupCode: '025' }, '0202520001'], [{ ...nda, groupCode: '026', regionCode: '02' }, '0102620001'], [{ ...nda, roleCode: '1' }, '0202410001'],
     ]) {
       const [code] = await generate(fields);
       const result = await register(code.code, expected);
@@ -110,4 +116,34 @@ test('access codes assign the next Card ID in their region, group and role seque
     assert.equal(active.scoutId, member.scoutId);
     assert.equal(active.groupCode, null);
   });
+  await t.test('code cleanup preserves membership and expired members must renew without changing IDs', async () => {
+    const [code, spare] = await generate(nda, 2);
+    const registered = await register(code.code, 'Renewal');
+    assert.equal(registered.status, 201);
+    const member = await ownMember(registered);
+    assert.equal((await request('/codes', 'DELETE', { scope: 'all' }, registered.cookie)).status, 403);
+    assert.equal((await request('/codes', 'DELETE', { scope: 'single', code: spare.code }, admin)).data.deleted, 1);
+    assert.equal((await register(spare.code, 'Deleted')).status, 409);
+    assert.equal((await request('/codes', 'DELETE', { scope: 'all' }, admin)).status, 200);
+    assert.equal((await ownMember(registered)).id, member.id);
+    await db.query("UPDATE members SET access_code_expires_at=now() - interval '1 second' WHERE id=$1", [member.id]);
+    const pending = (await request('/state', 'GET', undefined, registered.cookie)).data;
+    assert.equal(pending.session.needsAccessCode, true);
+    assert.deepEqual(pending.members, []);
+    assert.equal((await request('/card/qr', 'GET', undefined, registered.cookie)).status, 403);
+    const login = await request('/login', 'POST', { type: 'member', scoutId: member.scoutId, password });
+    assert.equal(login.status, 200);
+    const [renewal] = await generate({ ...nda, groupCode: '027' });
+    const renewed = await request('/activate', 'POST', { accessCode: renewal.code, password }, login.cookie);
+    assert.equal(renewed.status, 200);
+    const active = await ownMember(renewed);
+    assert.equal(active.cardId, member.cardId);
+    assert.equal(active.scoutId, member.scoutId);
+    assert.equal((await db.query("SELECT access_code_expires_at > now() + interval '364 days' AS valid FROM members WHERE id=$1", [member.id])).rows[0].valid, true);
+    const [next] = await generate(nda);
+    await db.query("UPDATE members SET access_code_expires_at=now() - interval '1 second' WHERE id=$1", [member.id]);
+    assert.equal((await request('/activate', 'POST', { accessCode: next.code, password }, renewed.cookie)).status, 200);
+    assert.equal((await request('/codes', 'DELETE', { scope: 'unused' }, admin)).status, 200);
+  });
+
 });

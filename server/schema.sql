@@ -146,3 +146,11 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+-- Membership validity is independent of generated-code cleanup.
+ALTER TABLE members ADD COLUMN IF NOT EXISTS access_code_expires_at timestamptz;
+UPDATE members m SET access_code_expires_at = COALESCE(
+  (SELECT used_at FROM access_codes c WHERE c.code=m.access_code), m.registered_at) + interval '1 year'
+WHERE m.access_code IS NOT NULL AND m.access_code_expires_at IS NULL;
+ALTER TABLE access_codes DROP CONSTRAINT IF EXISTS access_codes_used_by_key;
+CREATE INDEX IF NOT EXISTS access_codes_used_by_idx ON access_codes(used_by);

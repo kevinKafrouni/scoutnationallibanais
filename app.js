@@ -1,4 +1,4 @@
-import { cardCatalog, formatCardParts } from './card-numbering-config.js';
+import { cardCatalog, formatCardParts, districtForGroup } from './card-numbering-config.js';
 
 const state = { members: [], codes: [], counts: { members: "...", unused: "..." } };
 let session = { type: null, memberId: null };
@@ -121,6 +121,12 @@ for (const [selector, values, selected] of [
   const select = document.querySelector(selector);
   for (const [value, label] of values) select.add(new Option(`${value} — ${label}`, value, false, value === selected));
 }
+function syncGroupDistrict(group, region) {
+  const district = districtForGroup(group.value);
+  if (district) region.value = district;
+  for (const option of region.options) option.disabled = Boolean(district) && option.value !== district;
+}
+document.querySelector('#codeGroup').addEventListener('change', () => syncGroupDistrict(document.querySelector('#codeGroup'), document.querySelector('#codeRegion')));
 handle(elements.codeForm, elements.adminMessage, async () => {
   const quantity = Number(elements.codeQuantity.value);
   const groupCode = document.querySelector('#codeGroup').value;
@@ -129,6 +135,20 @@ handle(elements.codeForm, elements.adminMessage, async () => {
   await api('/codes', 'POST', { quantity, groupCode, regionCode, roleCode });
   await refresh();
   showMessage(elements.adminMessage, `${quantity} access codes generated for group ${groupCode}, region ${regionCode}, role ${roleCode}.`);
+});
+async function deleteCodes(scope, code) {
+  if (!window.confirm(scope === 'single' ? 'Delete this access code?' : `Delete ${scope === 'all' ? 'all generated' : 'all unused'} access codes? Deleted unused codes will no longer work.`)) return;
+  try {
+    const result = await api('/codes', 'DELETE', { scope, code });
+    await refresh();
+    showMessage(elements.adminMessage, `${result.deleted} access codes deleted.`);
+  } catch (error) { showMessage(elements.adminMessage, error.message, true); }
+}
+document.querySelector('#deleteUnusedCodes').addEventListener('click', () => deleteCodes('unused'));
+document.querySelector('#deleteAllCodes').addEventListener('click', () => deleteCodes('all'));
+elements.codeList.addEventListener('click', event => {
+  const button = event.target.closest('[data-delete-code]');
+  if (button) deleteCodes('single', button.dataset.deleteCode);
 });
 handle(elements.pinForm, elements.adminMessage, async () => {
   await api('/admin/password', 'PUT', { password: elements.newPin.value, currentPassword: document.querySelector('#currentAdminPassword').value });
@@ -171,6 +191,7 @@ function setupNumberingEditor(root) {
       label.classList.toggle('hidden', manual);
       label.querySelector('input,select').disabled = manual;
     }
+    if (!manual) syncGroupDistrict(root.querySelector('[name="groupCode"]'), root.querySelector('[name="regionCode"]'));
     card.readOnly = !manual;
     card.required = manual;
     card.placeholder = manual ? 'Enter Card ID' : 'Automatically assigned on save';
@@ -454,7 +475,7 @@ function renderCodes() {
 
   elements.codeList.innerHTML = state.codes
     .slice(0, 300)
-    .map((code) => `<div class="code-item"><div class="code-chip ${code.usedBy ? "used" : ""}">${escapeHtml(code.code)}</div><small>${code.groupCode ? `${escapeHtml(cardCatalog.groups.find(([value]) => value === code.groupCode)?.[1] || code.groupCode)} · Region ${escapeHtml(code.regionCode)} · Role ${escapeHtml(code.roleCode)}` : 'Legacy code'}</small></div>`)
+    .map((code) => `<div class="code-item"><div class="code-chip ${code.usedBy ? "used" : ""}">${escapeHtml(code.code)}</div><small>${code.groupCode ? `${escapeHtml(cardCatalog.groups.find(([value]) => value === code.groupCode)?.[1] || code.groupCode)} · Region ${escapeHtml(code.regionCode)} · Role ${escapeHtml(code.roleCode)}` : 'Legacy code'}</small><button type="button" class="secondary" data-delete-code="${escapeHtml(code.code)}">Delete</button></div>`)
     .join("");
 }
 
